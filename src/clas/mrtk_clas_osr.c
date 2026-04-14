@@ -1513,6 +1513,29 @@ int clas_ssr2osr(rtk_t* rtk, obsd_t* obs, int n, nav_t* nav, clas_osrd_t* osr, i
         osr_ctx_init = 1;
     }
 
+    /* Clear only the output fields of the per-satellite OSR buffer.
+     * All callers (cssr2rtcm3, ssr2obs, rtkpos) pass a MAXOBS-sized buffer
+     * that is reused across epochs. When a satellite is skipped mid-epoch
+     * (geodist failure, corrmeas failure, trop grid failure, etc.) the
+     * caller's buffer keeps the previous epoch's p/c values and the VRS
+     * output path would emit them as a valid MSM cell (see lessons.md L-036).
+     *
+     * We clear only .sat, .p[], .c[] here. The other fields (pbias, cbias,
+     * iono, antr, wupL, compL, ...) are part of the cross-epoch state that
+     * clas_osr_corrmeas() relies on — a full memset would break correction
+     * propagation and drop the epoch output rate dramatically (lessons.md
+     * L-036 has the numbers from the debugging session). */
+    {
+        int di, dj;
+        for (di = 0; di < MAXOBS; di++) {
+            osr[di].sat = 0;
+            for (dj = 0; dj < NFREQ + NEXOBS; dj++) {
+                osr[di].p[dj] = 0.0;
+                osr[di].c[dj] = 0.0;
+            }
+        }
+    }
+
     rs = mat(6, n);
     dts = mat(2, n);
     var = mat(1, n);
