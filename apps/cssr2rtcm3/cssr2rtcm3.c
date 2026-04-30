@@ -1320,11 +1320,13 @@ int mrtk_cssr2rtcm3(int argc, char **argv)
 
     /* initialize nav_t arrays (eph, geph, etc.) */
     nav->eph  = NULL;
+    nav->eph_prev = NULL;
     nav->geph = NULL;
     nav->seph = NULL;
-    if (!(nav->eph  = (eph_t  *)calloc(MAXSAT * 2, sizeof(eph_t))) ||
-        !(nav->geph = (geph_t *)calloc(NSATGLO,    sizeof(geph_t))) ||
-        !(nav->seph = (seph_t *)calloc(NSATSBS * 2, sizeof(seph_t)))) {
+    if (!(nav->eph      = (eph_t  *)calloc(MAXSAT * 2, sizeof(eph_t))) ||
+        !(nav->eph_prev = (eph_t  *)calloc(MAXSAT * 2, sizeof(eph_t))) ||
+        !(nav->geph     = (geph_t *)calloc(NSATGLO,    sizeof(geph_t))) ||
+        !(nav->seph     = (seph_t *)calloc(NSATSBS * 2, sizeof(seph_t)))) {
         fprintf(stderr, "Navigation data allocation error.\n");
         goto cleanup;
     }
@@ -1569,10 +1571,29 @@ int mrtk_cssr2rtcm3(int argc, char **argv)
                                 if (nav->ng < prn) nav->ng = prn;
                             }
                         } else {
+                            /* Before overwriting nav->eph[] with the new IODE,
+                             * snapshot the current eph into nav->eph_prev[].
+                             * This lets seleph() find the old IODE while CSSR
+                             * SSR is still transitioning, avoiding ~55s of
+                             * GAL satellite exclusion every IODnav update.
+                             * See lessons.md L-041. */
+                            int new_iode = raw_sbf->nav.eph[esat - 1].iode;
+                            int old_iode = nav->eph[esat - 1].iode;
+                            if (nav->eph[esat - 1].sat == esat &&
+                                old_iode != new_iode) {
+                                nav->eph_prev[esat - 1] = nav->eph[esat - 1];
+                            }
                             nav->eph[esat - 1] = raw_sbf->nav.eph[esat - 1];
                             if (raw_sbf->ephset) {
-                                nav->eph[esat - 1 + MAXSAT] =
-                                    raw_sbf->nav.eph[esat - 1 + MAXSAT];
+                                /* GAL F/NAV slot: same protection */
+                                int slot = esat - 1 + MAXSAT;
+                                int new_iode_f = raw_sbf->nav.eph[slot].iode;
+                                int old_iode_f = nav->eph[slot].iode;
+                                if (nav->eph[slot].sat == esat &&
+                                    old_iode_f != new_iode_f) {
+                                    nav->eph_prev[slot] = nav->eph[slot];
+                                }
+                                nav->eph[slot] = raw_sbf->nav.eph[slot];
                             }
                             if (nav->n < esat) nav->n = esat;
                         }
