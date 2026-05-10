@@ -883,8 +883,7 @@ int mrtk_bias(int argc, char** argv) {
 
     for (i = 1; i < argc; i++) {
         if (mrtk_is_help_flag(argv[i])) {
-            print_help();
-            goto cleanup;
+            print_help(); /* exits */
         } else if (!strcmp(argv[i], "-td") && i + 1 < argc) {
             sscanf(argv[++i], "%lf/%lf/%lf", ep, ep + 1, ep + 2);
             req[0] = 1;

@@ -71,7 +71,7 @@ mrtk run [options]
 | `-p`, `--port PORT` | Telnet console port |
 | `-m PORT` | Monitor stream port |
 | `-d`, `--device DEV` | Terminal device for the interactive console |
-| `-t`, `--trace LEVEL` | Debug trace level |
+| `-t LEVEL`, `--trace LEVEL` | Debug trace level |
 | `-h`, `--help` | Show help |
 
 **Examples:**
@@ -134,7 +134,7 @@ mrtk convert [options] rawfile
 | `-te`, `--end Y/M/D H:M:S` | End time |
 | `-ti`, `--interval SEC` | Observation interval |
 | `-f`, `--freq N` | Number of frequencies |
-| `-trace`, `--trace LEVEL` | Trace level |
+| `-trace LEVEL`, `--trace LEVEL` | Trace level |
 | `--help` | Show help (`-h` is the HNAV-output flag here, **not** help) |
 
 **Example:**
