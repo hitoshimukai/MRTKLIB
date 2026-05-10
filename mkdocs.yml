@@ -96,6 +96,8 @@ nav:
     - "Quick Start: CLAS PPP-RTK": guide/quickstart-clas.md
     - "Quick Start: MADOCA-PPP": guide/quickstart-madoca-ppp.md
     - NTRIP Streams: guide/ntrip.md
+  - Hardware:
+    - CLAS Positioning with mosaic-G5: hardware/cssr2rtcm3-mosaic-g5.md
   - Reference:
     - Configuration Options: reference/config-options.md
     - API Reference (Doxygen): reference/api.md

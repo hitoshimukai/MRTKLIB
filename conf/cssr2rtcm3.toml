@@ -1,0 +1,53 @@
+# MRTKLIB Configuration (TOML v1.0.0)
+# cssr2rtcm3: CSSR to RTCM3 MSM converter
+
+[positioning]
+mode = "ssr2osr"
+elevation_mask = 0.0
+satellite_ephemeris = "brdc+ssrapc"
+systems = ["GPS", "Galileo", "QZSS"]
+
+[positioning.corrections]
+tidal_correction = "solid+otl-clasgrid+pole"
+phase_windup = "on"
+exclude_eclipse = true
+receiver_antenna = false
+
+[positioning.atmosphere]
+ionosphere = "est-adaptive"
+troposphere = "off"
+
+[files]
+# CLAS compact network grid definition (shared across all CLAS configs).
+# Path is relative to the working directory where mrtk is invoked.
+cssr_grid = "./tests/data/claslib/clas_grid.def"
+
+# Signal code remapping: CLAS code → receiver tracking code.
+# Key format: {G|R|E|J|C}{RINEX obs code}  (e.g. G2X = GPS L2X)
+# Value: target RINEX obs code string       (e.g. "2W" = L2W)
+#
+# Uncomment and adjust for your receiver. Example for Septentrio mosaic-G5:
+[signal_remap]
+G2X = "2W" # GPS     L2C(M+L) → L2W  (needed: CLAS smode[1]=2X for most GPS sats)
+#E1X = "1C" # Galileo E1(B+C)  → E1C
+#E5X = "5Q" # Galileo E5a(I+Q) → E5aQ
+J2X = "2L" # QZS     L2C(M+L) → L2L
+
+# cssr2rtcm3-specific settings
+[cssr2rtcm3]
+# MSM message type: 4 (compact), 5 (+ Doppler), 7 (full resolution + Doppler)
+msm_type = 7
+# Constellations to include in RTCM3 MSM output (default: all CLAS systems)
+# Recognised: GPS, Galileo, QZSS, GLONASS
+systems = ["GPS", "Galileo", "QZSS"]
+# SNR model for VRS pseudo-observations:
+#   0 or omitted = elevation-dependent (25 + 20·sin(el) dB-Hz)
+#   >0           = fixed value in dB-Hz (mosaic-CLAS uses 50)
+snr_fixed = 50.0
+# L6D satellite auto-selection: minimum elevation angle (degrees).
+# cssr2rtcm3 watches all QZS satellites broadcasting L6D and selects the one
+# with the highest elevation. When the selected satellite drops below this
+# threshold, stops transmitting for >30 s, or another satellite reaches a
+# clearly higher elevation, it fails over to the next best candidate.
+# Default 10 degrees keeps GEO satellites (PRN >= 199) eligible.
+l6d_elmin = 10.0

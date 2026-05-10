@@ -398,6 +398,12 @@ typedef struct nav_s {                /* navigation data type */
     int na, namax;                    /* number of almanac data */
     int nt, ntmax;                    /* number of tec grid data */
     eph_t* eph;                       /* GPS/QZS/GAL/BDS/IRN ephemeris */
+    eph_t* eph_prev;                  /* previous-IODE fallback (2*MAXSAT or NULL).
+                                       * When set, seleph() searches this array
+                                       * after eph[] for the requested IODE.
+                                       * Used by cssr2rtcm3 to avoid losing the
+                                       * old IODE when broadcast eph overwrites
+                                       * faster than CSSR SSR transitions. */
     geph_t* geph;                     /* GLONASS ephemeris */
     seph_t* seph;                     /* SBAS ephemeris */
     peph_t* peph;                     /* precise ephemeris */

@@ -75,6 +75,28 @@ static inline int NT_RTK(const prcopt_t* opt) {
 /** Earth gravitational constant (m^3/s^2) -- for Shapiro correction */
 #define GME 3.986004415E+14
 
+/**
+ * @brief Check if two obs codes are on the same frequency band.
+ *
+ * CLAS corrections use combined tracking codes (e.g. L2X = L2C M+L),
+ * while receivers report specific codes (e.g. L2W, L2L). These are
+ * equivalent for bias correction purposes since CLAS biases are
+ * frequency-band level, not tracking-mode specific.
+ *
+ * @param[in] sys   Satellite system (SYS_GPS, SYS_GAL, etc.)
+ * @param[in] code1 First obs code (CODE_L??)
+ * @param[in] code2 Second obs code (CODE_L??)
+ * @return 1 if codes are on the same frequency band, 0 otherwise
+ */
+static int code_on_same_freq(int sys, uint8_t code1, uint8_t code2) {
+    int f1, f2;
+    if (code1 == code2) return 1;
+    if (code1 == 0 || code2 == 0) return 0;
+    f1 = code2freq_idx(sys, code1);
+    f2 = code2freq_idx(sys, code2);
+    return (f1 >= 0 && f1 == f2);
+}
+
 /** Frequency pair selection modes (upstream claslib rtklib.h) */
 #define POSL1 1      /* L1 single freq positioning */
 #define POSL1L2 2    /* L1+L2 dual freq positioning */
@@ -578,16 +600,29 @@ int clas_osr_corrmeas(const obsd_t* obs, nav_t* nav, const double* pos, const do
 
     /* decode phase and code bias (non-VRS / CSSR path) */
     nsig = count_nsig(corr->smode[sat - 1]);
-    for (i = 0; i < nf; i++) {
-        for (j = 0; j < nsig && j < MAXCODE; j++) {
-            smode = corr->smode[sat - 1][j];
-            if (smode == 0) {
-                continue;
+    {
+        int sys = satsys(sat, NULL);
+        for (i = 0; i < nf; i++) {
+            /* pass 1: exact code match (preferred) */
+            for (j = 0; j < nsig && j < MAXCODE; j++) {
+                smode = corr->smode[sat - 1][j];
+                if (smode == 0) continue;
+                if (obs->code[i] == smode) {
+                    pbias[i] = nav->ssr_ch[ch][sat - 1].pbias[smode - 1];
+                    cbias[i] = nav->ssr_ch[ch][sat - 1].cbias[smode - 1];
+                    break;
+                }
             }
-            if (obs->code[i] == smode) {
-                pbias[i] = nav->ssr_ch[ch][sat - 1].pbias[smode - 1];
-                cbias[i] = nav->ssr_ch[ch][sat - 1].cbias[smode - 1];
-                break;
+            if (pbias[i] != CLAS_CSSRINVALID) continue;
+            /* pass 2: same-frequency fallback (e.g. L2X↔L2W, L1X↔L1C) */
+            for (j = 0; j < nsig && j < MAXCODE; j++) {
+                smode = corr->smode[sat - 1][j];
+                if (smode == 0) continue;
+                if (code_on_same_freq(sys, obs->code[i], smode)) {
+                    pbias[i] = nav->ssr_ch[ch][sat - 1].pbias[smode - 1];
+                    cbias[i] = nav->ssr_ch[ch][sat - 1].cbias[smode - 1];
+                    break;
+                }
             }
         }
     }
@@ -1136,6 +1171,18 @@ int clas_osr_zdres(const obsd_t* obs, int n, const double* rs, const double* dts
         sys = satsys(sat, &prn);
         osr[i].sat = sat;
 
+        /* VRS mode (y==NULL): pre-populate obs codes from CLAS smode
+         * so that clas_osr_corrmeas can match bias corrections.
+         * Guard with code[j]==0 to avoid overwriting real receiver codes
+         * in PPP-RTK mode. */
+        if (y == NULL && sat > 0 && sat <= MAXSAT) {
+            for (j = 0; j < nf; j++) {
+                if (obs_copy[i].code[j] == 0) {
+                    obs_copy[i].code[j] = corr->smode[sat - 1][j];
+                }
+            }
+        }
+
         /* compute wavelengths for this satellite */
         sat_wavelengths(sat, obs_copy + i, nav, lam);
 
@@ -1178,15 +1225,66 @@ int clas_osr_zdres(const obsd_t* obs, int n, const double* rs, const double* dts
 
         /* frequency pair selection */
         qj = clas_osr_selfreqpair(sat, opt, obs_copy + i);
+
+        /* If selfreqpair returns 0 (L1 only) but CLAS has secondary
+         * frequency corrections, use them. This handles Galileo E5a
+         * when obsdef places it at index 1 instead of index 2 (e.g.
+         * signals=["E1C","E5Q"] without E7Q).
+         *
+         * Restricted to Galileo so user-selected single-frequency modes
+         * (e.g. POSL1) on GPS / QZSS / GLONASS / BDS are preserved. */
+        if (qj == 0 && satsys(sat, NULL) == SYS_GAL) {
+            for (j = 1; j < nf; j++) {
+                if (corr->smode[sat - 1][j] != 0) {
+                    qj = j;
+                    break;
+                }
+            }
+        }
         nftmp = nf;
         tmp_r = -1.0;
         tmp_dts = 0.0;
 
+        /* δBIAS discontinuity compensation (IS-QZSS-L6-005 5.5.3.2).
+         * Compute SSR range correction (-dclk + orbit·LOS) and detect
+         * orbit correction epoch transitions.  The delta is applied to
+         * CPC/PRC in the frequency loop below. */
+        {
+            const ssr_t *ssr_sat = &nav->ssr_ch[ch][sat - 1];
+            double orb_tow_cur = time2gpst(ssr_sat->t0[0], NULL);
+            double ssr_range_cur = 0.0, delta_ssr = 0.0;
+            double er_v[3], ea_v[3], ec_v[3], rc_v[3], deph_ecef[3];
+            int kk;
+
+            /* RAC basis vectors from satellite position & velocity */
+            if (normv3(rs + i * 6 + 3, ea_v)) {
+                cross3(rs + i * 6, rs + i * 6 + 3, rc_v);
+                if (normv3(rc_v, ec_v)) {
+                    cross3(ea_v, ec_v, er_v);
+
+                    /* orbit correction in ECEF */
+                    for (kk = 0; kk < 3; kk++) {
+                        deph_ecef[kk] = er_v[kk] * ssr_sat->deph[0]
+                                      + ea_v[kk] * ssr_sat->deph[1]
+                                      + ec_v[kk] * ssr_sat->deph[2];
+                    }
+                    /* range correction: -dclk + orbit_ecef · LOS */
+                    ssr_range_cur = -ssr_sat->dclk[0]
+                                  + dot(deph_ecef, e + i * 3, 3);
+
+                    /* detect orbit epoch change and compute delta */
+                    if (osr_ctx->prev_ssr_orb_tow[sat - 1] > 0.0 &&
+                        orb_tow_cur != osr_ctx->prev_ssr_orb_tow[sat - 1]) {
+                        delta_ssr = ssr_range_cur
+                                  - osr_ctx->prev_ssr_range[sat - 1];
+                    }
+                    osr_ctx->prev_ssr_range[sat - 1] = ssr_range_cur;
+                    osr_ctx->prev_ssr_orb_tow[sat - 1] = orb_tow_cur;
+                }
+            }
+
         for (j = 0; j < nf; j++) {
             f = j;
-            if (f != 0 && f != qj) {
-                continue;
-            }
 
             fi = (lam[0] > 0.0) ? lam[f] / lam[0] : 0.0;
 
@@ -1202,6 +1300,12 @@ int clas_osr_zdres(const obsd_t* obs, int n, const double* rs, const double* dts
             /* carrier-phase correction */
             osr[i].CPC[j] = osr[i].trop + osr[i].relatv + osr[i].antr[f] - fi * fi * FREQ2 / FREQ1 * osr[i].iono +
                             osr[i].pbias[j] + osr[i].wupL[f] + osr[i].compL[j];
+
+            /* apply δBIAS compensation for orbit correction transition */
+            if (delta_ssr != 0.0) {
+                osr[i].CPC[j] -= delta_ssr;
+                osr[i].PRC[j] -= delta_ssr;
+            }
 
             /* SIS/IODE adjustment */
             iodeflag = 0;
@@ -1266,6 +1370,7 @@ int clas_osr_zdres(const obsd_t* obs, int n, const double* rs, const double* dts
             }
             osr_ctx->cpctmp[j * MAXSAT + sat - 1] = osr[i].orb - osr[i].clk + osr[i].CPC[j];
         }
+        } /* end δBIAS compensation block */
 
         /* ISB correction */
         if (opt->isb == ISBOPT_TABLE) {
@@ -1318,7 +1423,11 @@ int clas_osr_zdres(const obsd_t* obs, int n, const double* rs, const double* dts
                     if (f > 0 && !(f & qj)) {
                         continue;
                     }
-                    if (f == 1 && (satsys(sat, NULL) == SYS_GAL)) {
+                    /* GAL has no L2 band — skip only if slot f is
+                     * actually L2 (freq_num==2). When obsdef places E5a
+                     * at slot 1 (e.g. signals=["E1C","E5Q"]), do NOT skip. */
+                    if (satsys(sat, NULL) == SYS_GAL &&
+                        code2freq_num(obs_copy[i].code[f]) == 2) {
                         continue;
                     }
                     if (j == 0 && (osr[i].pbias[f] == CLAS_CSSRINVALID)) {
@@ -1340,8 +1449,8 @@ int clas_osr_zdres(const obsd_t* obs, int n, const double* rs, const double* dts
         /* store pbias time */
         osr_ctx->pt0tmp[sat - 1] = nav->ssr_ch[ch][sat - 1].t0[5];
 
-        /* GAL: clear L2 slots (non-VRS path) */
-        if (sys == SYS_GAL) {
+        /* GAL: clear L2 slots only if slot 1 is actually L2 band */
+        if (sys == SYS_GAL && code2freq_num(obs_copy[i].code[1]) == 2) {
             osr[i].antr[1] = 0.0;
             osr[i].wupL[1] = 0.0;
             osr[i].CPC[1] = 0.0;
@@ -1405,6 +1514,29 @@ int clas_ssr2osr(rtk_t* rtk, obsd_t* obs, int n, nav_t* nav, clas_osrd_t* osr, i
     if (!osr_ctx_init) {
         clas_osr_ctx_init(&osr_ctx);
         osr_ctx_init = 1;
+    }
+
+    /* Clear only the output fields of the per-satellite OSR buffer.
+     * All callers (cssr2rtcm3, ssr2obs, rtkpos) pass a MAXOBS-sized buffer
+     * that is reused across epochs. When a satellite is skipped mid-epoch
+     * (geodist failure, corrmeas failure, trop grid failure, etc.) the
+     * caller's buffer keeps the previous epoch's p/c values and the VRS
+     * output path would emit them as a valid MSM cell (see lessons.md L-036).
+     *
+     * We clear only .sat, .p[], .c[] here. The other fields (pbias, cbias,
+     * iono, antr, wupL, compL, ...) are part of the cross-epoch state that
+     * clas_osr_corrmeas() relies on — a full memset would break correction
+     * propagation and drop the epoch output rate dramatically (lessons.md
+     * L-036 has the numbers from the debugging session). */
+    {
+        int di, dj;
+        for (di = 0; di < MAXOBS; di++) {
+            osr[di].sat = 0;
+            for (dj = 0; dj < NFREQ + NEXOBS; dj++) {
+                osr[di].p[dj] = 0.0;
+                osr[di].c[dj] = 0.0;
+            }
+        }
     }
 
     rs = mat(6, n);
@@ -1529,8 +1661,15 @@ int clas_ssr2osr(rtk_t* rtk, obsd_t* obs, int n, nav_t* nav, clas_osrd_t* osr, i
                 }
                 obs[ko].P[j] = osr[i].p[j];
                 obs[ko].L[j] = (lam_v[f] > 0.0) ? osr[i].c[j] / lam_v[f] : 0.0;
-                obs[ko].LLI[j] = 0;
-                obs[ko].SNR[j] = (uint16_t)(40.0 / SNR_UNIT);
+                obs[ko].LLI[j] = (rtk->ssat[sati - 1].slip[j] & 1) ? 1 : 0;
+                /* SNR model: elevation-dependent or fixed (via posopt[10]) */
+                {
+                    double el = azel[i * 2 + 1]; /* elevation (rad), from zdres */
+                    double snr_db = (opt->posopt[10] > 0.0)
+                                        ? opt->posopt[10]
+                                        : 25.0 + 20.0 * sin(el);
+                    obs[ko].SNR[j] = (uint16_t)(snr_db / SNR_UNIT);
+                }
             }
             /* clear remaining freq slots */
             for (j = nf; j < NFREQ + NEXOBS; j++) {
