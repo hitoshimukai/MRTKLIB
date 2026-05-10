@@ -20,12 +20,23 @@ class Plotter:
         self.trgfile = trgfile
         self.trglabel = trglabel
 
-    def plot(self, savefig: bool = False):
-        """Plot position data from reference and target files."""
+    def plot(self, savefig: bool = False, savesbf_csv: bool = False) -> None:
+        """Plot position data from reference and target files.
+
+        Args:
+            savefig (bool): Whether to save the figure instead of displaying it.
+            savesbf_csv (bool): Whether to save the SBF CSV data.
+        """
         # Read reference data
         ext_ref = self.reffile.suffix.lower()
         reader = parse_sbf if ext_ref == ".sbf" else parse_nmea
         df_ref = pd.DataFrame(reader(self.reffile))
+
+        # Save SBF CSV data if requested
+        if savesbf_csv and ext_ref == ".sbf":
+            csv_filename = self.reffile.with_suffix(".csv")
+            df_ref.to_csv(csv_filename, index=False)
+            print(f"SBF data saved to {csv_filename}")
 
         # Compute median position as ground truth reference
         llh_ref = df_ref[["lat", "lon", "hgt"]].median().values
@@ -168,12 +179,8 @@ class Plotter:
 
         # Save figure
         if savefig is not None:
-            if savefig.parent != Path("."):
-                savefig.parent.mkdir(parents=True, exist_ok=True)
-            path = (
-                savefig
-                / f"{self.reffile.stem}_{self.trgfile.stem if self.trgfile else 'ref'}_pos.png"
-            )
+            filename = f"{self.reffile.stem}_{self.trgfile.stem if self.trgfile else 'ref'}_pos.png"
+            path = self.reffile.parent / filename
             fig.savefig(path, dpi=300)
             print(f"Figure saved to {path}")
         else:
@@ -204,11 +211,15 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--savefig",
-        help="Save the figure to the specified path instead of displaying it",
-        type=Path,
-        default=None,
+        help="Save the figure",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--savesbf-csv",
+        help="Save the SBF CSV data",
+        action="store_true",
     )
     args = parser.parse_args()
 
     plotter = Plotter(args.reffile, args.trgfile, args.trglabel)
-    plotter.plot(args.savefig)
+    plotter.plot(args.savefig, args.savesbf_csv)
