@@ -367,13 +367,12 @@ The latest long-term static test was conducted under the following setup.
 | Item | Value |
 |------|-------|
 | **Test site** | Tokyo University of Marine Science and Technology, Etchujima Campus |
-| **Antenna** | (TBD — to be filled in after the test) |
 | **Receiver** | Septentrio mosaic-go G5 P3 evaluation kit |
-| **Receiver firmware** | (recorded with `getReceiverInfo` at session start) |
 | **PVT output rate** | 1 Hz (SBF Output Stream 1, `Interval = sec1`) |
 | **Solution Sensitivity** | Loose |
 | **Max Age of RTK data** | 60 s |
 | **MRTKLIB build** | commit `3a8cc51` or later (eph_prev fix applied) |
+| **Session start** | 2026-05-08 23:59 GPST |
 | **Session duration** | 24 h continuous |
 
 **Block Diagram**
@@ -383,43 +382,103 @@ flowchart LR
     A["mosaic-G5 P3"] -- "Serial/USB2" --> B["mrtk relay<br/>(SBF)"]
     subgraph "Host (PC / SBC)"
     B -- "SBF" --> C["mrtk cssr2rtcm3<br/>(RTCM Conversion)"]
-    B -- "SBF" --> D["mrtk run<br/>(Realtime Processing)"]
     B --> E[("Log (SBF)")]
-    B --> F["sbf_plot"]
-    D --> G[("Log (NMEA)")]
     end
     C -- "Serial/USB1 (RTCM3)" --> A
 ```
 
 | Process           | Role                                                                     |
 | ----------------- | ------------------------------------------------------------------------ |
-| `mrtk relay`      | Relay SBF stream to `mrtk cssr2rtcm3` and `mrtk run`                     |
+| `mrtk relay`      | Relay SBF stream to `mrtk cssr2rtcm3` and log raw SBF                    |
 | `mrtk cssr2rtcm3` | Convert CLAS CSSR to RTCM3 MSM7 in real time                             |
-| `mrtk run`        | Perform CLAS PPP-RTK positioning in real time                            |
-| `sbf_plot`        | Monitor the mosaic-G5 positioning status (PVT mode and position scatter) |
 
 ### Long-term stability (24 h)
 
-!!! info "Pending — long-term test in progress"
-    A 24-hour continuous test is currently running. Results
-    (Fix rate, longest continuous Fix run, ENU dispersion, comparison plots)
-    will be published here once the session completes.
+The first 24-hour continuous static test of the
+`mosaic-G5 + mrtk cssr2rtcm3` chain produced the following result.
 
-Planned content of this section:
+![ENU time series (left) and EN scatter (right) over 24 h. Green = RTK Fix, orange = RTK Float, red = SPP.](images/mosaic-g5/long_term_24h.png)
 
-- Fix-rate breakdown over 24 hours (Fix / Float / SPP percentages)
-- Time series of vertical / horizontal components
-- Comparison with mosaic-CLAS reference solution if available
+**Solution mode breakdown (87,839 epochs, no data loss):**
 
-### Independent verification (Septentrio PPK)
+| Mode                | Epochs | Share   | Mean tracked sats |
+|---------------------|-------:|--------:|------------------:|
+| **RTK Fix**         | 63,284 | **72.05%** | 14.2 |
+| **RTK Float**       | 24,541 | **27.94%** | 12.3 |
+| DGPS                |      0 |   0.00% |   — |
+| SPP (stand-alone)   |     14 |   0.02% |   — |
 
-Septentrio independently post-processed the same SBF + cssr2rtcm3 RTCM3
-stream with their PPK toolchain and confirmed **Fix rate ≈ 100%** with the
-current cssr2rtcm3 build. The brief Float dips that remained were observed
-on the mosaic-CLAS reference solution at the same epochs and are caused by
-CLAS broadcast characteristics rather than the cssr2rtcm3 output itself.
+**Hourly Fix rate (GPST hour-of-day):**
+
+| Hour | Fix % | Hour | Fix % | Hour | Fix % |
+|-----:|------:|-----:|------:|-----:|------:|
+|   00 |  71.1 |   08 |  96.9 |   16 |   0.0 |
+|   01 |  99.9 |   09 |  92.8 |   17 |  16.9 |
+|   02 |  99.1 |   10 |  95.8 |   18 |  17.6 |
+|   03 | 100.0 |   11 |  95.5 |   19 |  85.2 |
+|   04 |  23.2 |   12 |  27.9 |   20 |  99.6 |
+|   05 |  45.8 |   13 |  90.4 |   21 |  99.6 |
+|   06 |  92.8 |   14 |  56.6 |   22 |  99.0 |
+|   07 |  98.7 |   15 |  28.0 |   23 |  96.1 |
+
+**Highlights:**
+
+- **24 h continuous operation** with no crashes and no output stalls,
+  confirming long-running daemon stability after the recent `actualdist`
+  fixes (`d028b0c`, `7fb497f`) and the `eph_prev` correction-continuity fix
+  (`3a8cc51`).
+- **DGPS dips eliminated**: the 10-minute periodic DGPS dip seen in earlier
+  builds did not reappear (DGPS reached 0 epochs over 24 h).
+- **16 of 24 hours achieved ≥ 90 % Fix rate** (8 hours at ≥ 99 %).
+- Two windows account for almost all of the Float share:
+  **h ≈ 04–05 GPST** (~2 h, 23–46 % Fix) and
+  **h ≈ 14–18 GPST** (~5 h, 0–57 % Fix; one full hour at 0 % Fix).
+  In both windows the tracked-satellite count (ns ≈ 12) and DGPS correction
+  age (~2 s) were healthy, so the cause is neither observation starvation
+  nor a correction-link outage — investigation is ongoing
+  (see [Known Issues](#known-issues) and
+  [#98](https://github.com/h-shiono/MRTKLIB/issues/98)).
+
+### Reference comparison: mosaic-CLAS
+
+For context, a 24-hour static run of a Septentrio **mosaic-CLAS** receiver
+at a different location in the Kantō region on the same day produced the
+following result.
+
+![mosaic-CLAS 24-hour ENU time series and EN scatter at a separate Kantō site (same day).](images/mosaic-g5/long_term_24h_mosaic_clas.png)
+
+| Stream                                    | Fix      | Float    | DGPS    | SPP     |
+| ----------------------------------------- | -------: | -------: | ------: | ------: |
+| `mosaic-G5` + `mrtk cssr2rtcm3` (this guide) | 72.05 %  | 27.94 %  | 0.00 %  | 0.02 %  |
+| `mosaic-CLAS` (reference)                 | 97.96 %  | 2.02 %   | 0.01 %  | 0.00 %  |
+
+The mosaic-CLAS reference is at a different site and uses different
+hardware, so this is not a like-for-like comparison; nevertheless it
+indicates that there is still meaningful headroom in the
+`cssr2rtcm3 → external RTK engine` path relative to a receiver that
+consumes CLAS L6D natively. See
+[#98](https://github.com/h-shiono/MRTKLIB/issues/98) for the
+investigation tracking this gap.
 
 ## Known Issues
+
+### Fix-rate gap vs. mosaic-CLAS reference — [#98](https://github.com/h-shiono/MRTKLIB/issues/98)
+
+In the 24-hour static test summarised above, the
+`cssr2rtcm3 → mosaic-G5` chain achieved a 72 % Fix rate, versus 98 % on
+a `mosaic-CLAS` reference at a different Kantō site on the same day —
+a remaining headroom of roughly 20 %. Two windows
+(h ≈ 04–05 and h ≈ 14–18 GPST) showed sustained drops in Fix rate while
+the tracked-satellite count (≈ 12) and the DGPS correction age (≈ 2 s)
+remained healthy. The corrections were arriving on time and enough
+satellites were tracked, yet integer ambiguities did not consolidate to
+Fix in those windows.
+
+Possible causes under investigation include cycle-slip cascades on
+specific PRNs, ionospheric activity around dawn / late afternoon, the
+elevation profile of the active L6D satellite, and CLAS network-region
+transitions. Tracking issue:
+[#98](https://github.com/h-shiono/MRTKLIB/issues/98).
 
 ### Vertical-component dispersion (~30 s sawtooth) — [#97](https://github.com/h-shiono/MRTKLIB/issues/97)
 
