@@ -26,6 +26,8 @@ extern int mrtk_ssr2obs(int argc, char** argv);
 extern int mrtk_ssr2osr(int argc, char** argv);
 extern int mrtk_bias(int argc, char** argv);
 extern int mrtk_dump(int argc, char** argv);
+extern int mrtk_cssr2rtcm3(int argc, char** argv);
+extern int mrtk_l6extract(int argc, char** argv);
 
 /* showmsg / settspan / settime — shared callback stubs required by mrtklib --*/
 extern int showmsg(const char* format, ...) {
@@ -51,6 +53,8 @@ typedef struct {
 static const subcmd_t subcmds[] = {
     {"run", mrtk_run},         {"post", mrtk_post},       {"relay", mrtk_relay}, {"convert", mrtk_convert},
     {"ssr2obs", mrtk_ssr2obs}, {"ssr2osr", mrtk_ssr2osr}, {"bias", mrtk_bias},   {"dump", mrtk_dump},
+    {"cssr2rtcm3", mrtk_cssr2rtcm3},
+    {"l6extract", mrtk_l6extract},
 };
 #define NSUBCMD (int)(sizeof(subcmds) / sizeof(subcmds[0]))
 
@@ -72,11 +76,12 @@ static void print_help(void) {
             "Format Translation:\n"
             "  ssr2obs     Convert SSR corrections to pseudo-observations\n"
             "  ssr2osr     Convert SSR corrections to OSR\n"
+            "  cssr2rtcm3  Convert CLAS CSSR to RTCM3 MSM (real-time VRS)\n"
             "\n"
             "Utilities:\n"
             "  bias        Estimate receiver fractional biases\n"
-            "  dump        Dump stream data to human-readable format "
-            "(e.g., 'mrtk dump cssr')\n",
+            "  dump        Dump stream data to human-readable format\n"
+            "  l6extract   Extract L6 frames from SBF/UBX to per-PRN files\n",
             MRTKLIB_SOFTNAME, MRTKLIB_VERSION_STRING);
 }
 

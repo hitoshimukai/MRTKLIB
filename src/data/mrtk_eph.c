@@ -532,6 +532,46 @@ eph_t* seleph(gtime_t time, int sat, int iode, const nav_t* nav) {
             tmin = t;
         } /* toe closest to time */
     }
+    if (iode >= 0 && nav->eph_prev) {
+        /* IODE-specific lookup failed in nav->eph[]. Fall back to eph_prev[],
+         * which keeps the previous-IODE eph for each satellite slot. This
+         * matters when broadcast eph receives the new IODE (overwriting
+         * eph[]) before the CSSR SSR transitions to that IODE; without this
+         * fallback, seleph() returns NULL for ~55 s on every Galileo IODnav
+         * update, causing periodic DGPS dips. See lessons.md L-041. */
+        int slot_count = (sys == SYS_GAL) ? 2 : 1;  /* GAL has I/NAV + F/NAV */
+        int k;
+        for (k = 0; k < slot_count; k++) {
+            int slot = (sat - 1) + MAXSAT * k;
+            const eph_t* e = &nav->eph_prev[slot];
+            if (e->sat != sat) {
+                continue;
+            }
+            if (sys == SYS_CMP) {
+                if (((int)e->toes % 2048) != (iode * 8) % 2048) {
+                    continue;
+                }
+            } else if (e->iode != iode) {
+                continue;
+            }
+            if (sys == SYS_GAL) {
+                int gsel = getseleph(SYS_GAL);
+                if (gsel == 0 && !(e->code & (1 << 9))) {
+                    continue; /* I/NAV */
+                }
+                if (gsel == 1 && !(e->code & (1 << 8))) {
+                    continue; /* F/NAV */
+                }
+                if (timediff(e->toe, time) >= 0.0) {
+                    continue;
+                }
+            }
+            if (fabs(timediff(e->toe, time)) > tmax) {
+                continue;
+            }
+            return (eph_t*)e;
+        }
+    }
     if (iode >= 0 || j < 0) {
         trace(NULL, 3, "no broadcast ephemeris: %s sat=%2d iode=%3d\n", time_str(time, 0), sat, iode);
         return NULL;

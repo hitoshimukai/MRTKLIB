@@ -724,22 +724,33 @@ static int encode_type1004(rtcm_t* rtcm, int sync) {
 static int encode_type1005(rtcm_t* rtcm, int sync) {
     double* p = rtcm->sta.pos;
     int i = 24;
+    int j, has_gps = 0, has_glo = 0, has_gal = 0;
 
     trace(NULL, 3, "encode_type1005: sync=%d\n", sync);
+
+    /* detect constellations from observation data */
+    for (j = 0; j < rtcm->obs.n; j++) {
+        int sys = satsys(rtcm->obs.data[j].sat, NULL);
+        if (sys == SYS_GPS || sys == SYS_QZS) has_gps = 1;
+        else if (sys == SYS_GLO) has_glo = 1;
+        else if (sys == SYS_GAL) has_gal = 1;
+    }
+    /* fallback: at least GPS if no obs loaded yet */
+    if (!has_gps && !has_glo && !has_gal) has_gps = 1;
 
     setbitu(rtcm->buff, i, 12, 1005);
     i += 12; /* message no */
     setbitu(rtcm->buff, i, 12, rtcm->staid);
     i += 12; /* ref station id */
-    setbitu(rtcm->buff, i, 6, 0);
+    setbitu(rtcm->buff, i, 6, rtcm->sta.itrf);
     i += 6; /* itrf realization year */
-    setbitu(rtcm->buff, i, 1, 1);
+    setbitu(rtcm->buff, i, 1, has_gps);
     i += 1; /* gps indicator */
-    setbitu(rtcm->buff, i, 1, 1);
+    setbitu(rtcm->buff, i, 1, has_glo);
     i += 1; /* glonass indicator */
-    setbitu(rtcm->buff, i, 1, 0);
+    setbitu(rtcm->buff, i, 1, has_gal);
     i += 1; /* galileo indicator */
-    setbitu(rtcm->buff, i, 1, 0);
+    setbitu(rtcm->buff, i, 1, 1);
     i += 1; /* ref station indicator */
     set38bits(rtcm->buff, i, p[0] / 0.0001);
     i += 38; /* antenna ref point ecef-x */
@@ -759,7 +770,8 @@ static int encode_type1005(rtcm_t* rtcm, int sync) {
 /* encode type 1006: stationary RTK reference station ARP with height --------*/
 static int encode_type1006(rtcm_t* rtcm, int sync) {
     double* p = rtcm->sta.pos;
-    int i = 24, hgt = 0;
+    int i = 24, j, hgt = 0;
+    int has_gps = 0, has_glo = 0, has_gal = 0;
 
     trace(NULL, 3, "encode_type1006: sync=%d\n", sync);
 
@@ -768,19 +780,28 @@ static int encode_type1006(rtcm_t* rtcm, int sync) {
     } else {
         trace(NULL, 2, "antenna height error: h=%.4f\n", rtcm->sta.hgt);
     }
+    /* detect constellations from observation data */
+    for (j = 0; j < rtcm->obs.n; j++) {
+        int sys = satsys(rtcm->obs.data[j].sat, NULL);
+        if (sys == SYS_GPS || sys == SYS_QZS) has_gps = 1;
+        else if (sys == SYS_GLO) has_glo = 1;
+        else if (sys == SYS_GAL) has_gal = 1;
+    }
+    if (!has_gps && !has_glo && !has_gal) has_gps = 1;
+
     setbitu(rtcm->buff, i, 12, 1006);
     i += 12; /* message no */
     setbitu(rtcm->buff, i, 12, rtcm->staid);
     i += 12; /* ref station id */
-    setbitu(rtcm->buff, i, 6, 0);
+    setbitu(rtcm->buff, i, 6, rtcm->sta.itrf);
     i += 6; /* itrf realization year */
-    setbitu(rtcm->buff, i, 1, 1);
+    setbitu(rtcm->buff, i, 1, has_gps);
     i += 1; /* gps indicator */
-    setbitu(rtcm->buff, i, 1, 1);
+    setbitu(rtcm->buff, i, 1, has_glo);
     i += 1; /* glonass indicator */
-    setbitu(rtcm->buff, i, 1, 0);
+    setbitu(rtcm->buff, i, 1, has_gal);
     i += 1; /* galileo indicator */
-    setbitu(rtcm->buff, i, 1, 0);
+    setbitu(rtcm->buff, i, 1, 1);
     i += 1; /* ref station indicator */
     set38bits(rtcm->buff, i, p[0] / 0.0001);
     i += 38; /* antenna ref point ecef-x */

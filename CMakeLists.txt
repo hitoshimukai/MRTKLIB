@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(MRTKLIB VERSION 0.6.4 LANGUAGES C)
+project(MRTKLIB VERSION 0.6.5 LANGUAGES C)
 
 # ── Version header generation ─────────────────────────────────────────────────
 set(MRTKLIB_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
@@ -138,6 +138,8 @@ add_executable(mrtk
     apps/ssr2osr/ssr2osr.c
     apps/recvbias/recvbias.c
     apps/dumpcssr/dumpcssr.c
+    apps/cssr2rtcm3/cssr2rtcm3.c
+    apps/l6extract/l6extract.c
 )
 target_include_directories(mrtk PRIVATE apps/rtkrcv)
 target_compile_definitions(mrtk PRIVATE SVR_REUSEADDR)

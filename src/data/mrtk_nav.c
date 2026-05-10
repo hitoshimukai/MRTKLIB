@@ -879,6 +879,8 @@ extern void freenav(nav_t* nav, int opt) {
         free(nav->eph);
         nav->eph = NULL;
         nav->n = nav->nmax = 0;
+        free(nav->eph_prev);
+        nav->eph_prev = NULL;
     }
     if (opt & 0x02) {
         free(nav->geph);
