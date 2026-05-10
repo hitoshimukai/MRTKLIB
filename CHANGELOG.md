@@ -5,24 +5,54 @@ All notable changes to MRTKLIB are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v0.6.3] - 2026-03-13
+## [v0.6.4] - 2026-04-16
 
-**Feature** — CSSR to RTCM3 real-time converter (`mrtk cssr2rtcm3`).
+**Patch** — rtkrcv stability fixes and GitHub Community Profile completion.
+
+### Fixed
+
+- **rtkrcv status-poll SIGSEGV** (#74) — `prstatus()` `mode[]` array had 8 entries but `PMODE_PPP_RTK`/`PMODE_VRS_RTK` etc. index beyond that. Expanded to 13 entries with bounds checks on both `mode[]` and `freq[]`.
+- **rtkrcv status-path data race** (#74) — `prstatus()` shallow-copied `rtk_t` under lock, leaving `x`/`P`/`xa`/`Pa` aliased to heap buffers the processing thread keeps mutating via `rtkpos()`. Now extracts position + covariance diagonal into local variables under the lock and nulls the shared pointers after unlock.
+- **rtkrcv SIGSEGV handler safety** (#82, #85) — Crash handler is now async-signal-safe (`write(2)` instead of `fprintf()`) and re-raises the signal after restoring the default handler, so OS core-dump capture still fires.
 
 ### Added
 
-- **`mrtk cssr2rtcm3` subcommand** — Real-time converter from QZSS CLAS L6D (CSSR)
-  to RTCM3 MSM4 messages, enabling CLAS-incompatible GNSS receivers to use CLAS
-  corrections as a VRS source. Supports Septentrio SBF single-stream mode
-  (multiplexed L6D + decoded NAV + PVT).
-- **Septentrio SBF decoded navigation decoders** — `GPSNav(5891)`, `GLONav(4004)`,
-  `GALNav(4002)`, `BDSNav(4081)`, `QZSNav(4095)`, `PVTGeodetic(4007)`,
-  `QZSRawL6D(4270)` block decoders added to `mrtk_rcv_septentrio.c`.
-- **`conf/cssr2rtcm3.toml`** — Default TOML configuration for CSSR→RTCM3 conversion.
+- **GitHub issue and PR templates** (#88) — Five issue templates (`bug_report`, `positioning_issue`, `feature_request`, `documentation`, `question`) plus a PR template with `ctest` slot and positioning-regression check.
+- **Declarative label scheme** (#88, #90) — `.github/labels.yml` with 34 labels across six axes (type/module/mode/gnss/priority/status), synced to GitHub by `EndBug/label-sync@v2` on push to `main`.
+- **CONTRIBUTING.md** (#92) — Issue reporting, fork + upstream-remote workflow, branch/PR conventions targeting `develop`, coding standards, positioning-regression guard, label reference, BSD 2-clause inbound=outbound.
+- **SECURITY.md** (#92) — Private Vulnerability Reporting flow; scope explicitly also covers Code of Conduct reports via the same advisory channel.
+- **CODE_OF_CONDUCT.md** (#92) — Contributor Covenant 2.1 verbatim.
+- **Crash-diagnostic build flags** — `-rdynamic` on Linux for SIGSEGV backtrace symbolization.
+- **CLAS real-time Grafana dashboard link** in README for users monitoring `mrtk run`.
 
 ### Test Results
 
 62/62 tests pass (no regressions).
+
+## [v0.6.3] - 2026-03-31
+
+**Feature** — NTRIP v2 (HTTP/1.1) protocol support with auto-negotiation.
+
+### Added
+
+- **NTRIP v2 client** — HTTP/1.1 GET requests with `Host:` and `Ntrip-Version: Ntrip/2.0` headers; automatic `HTTP/1.1 200 OK` response parsing.
+- **NTRIP v2 server** — HTTP/1.1 POST requests with `Transfer-Encoding: chunked` (replaces legacy `SOURCE` command).
+- **Chunked transfer encoding** — Incremental, non-blocking decoder and stateless encoder in header-only `ntrip_chunk.h`.
+- **Version auto-detection** — Tries v2 first, falls back to v1 transparently; per-stream `?ver=N` override.
+- **`strsetntripver()`** — Public API for setting the global default NTRIP version.
+- **URL percent-decoding** — `%XX` sequences in NTRIP user/password fields are now decoded (e.g., `%40` -> `@`).
+- **NTRIP streams guide** — New documentation page (`docs/guide/ntrip.md`) with path format, version selection, TLS tunnel setup (stunnel/socat), and troubleshooting.
+- **`t_ntrip` unit test** — 17 tests for chunked codec and HTTP helpers.
+
+### Changed
+
+- `ntrip_t` struct extended with version negotiation, chunked state, and host fields.
+- `ntripc_con_t` struct extended with per-client NTRIP version tracking.
+- NTRIP caster sends chunked encoding to v2 clients, raw data to v1 clients.
+
+### Test Results
+
+63/63 tests pass (62 existing + 1 new; no regressions).
 
 ## [v0.6.2] - 2026-03-13
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(MRTKLIB VERSION 0.6.3 LANGUAGES C)
+project(MRTKLIB VERSION 0.6.4 LANGUAGES C)
 
 # ── Version header generation ─────────────────────────────────────────────────
 set(MRTKLIB_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
@@ -138,12 +138,11 @@ add_executable(mrtk
     apps/ssr2osr/ssr2osr.c
     apps/recvbias/recvbias.c
     apps/dumpcssr/dumpcssr.c
-    apps/cssr2rtcm3/cssr2rtcm3.c
-    apps/l6extract/l6extract.c
 )
 target_include_directories(mrtk PRIVATE apps/rtkrcv)
 target_compile_definitions(mrtk PRIVATE SVR_REUSEADDR)
 target_link_libraries(mrtk PRIVATE mrtklib pthread)
+target_link_options(mrtk PRIVATE $<$<OR:$<PLATFORM_ID:Linux>,$<PLATFORM_ID:FreeBSD>>:-rdynamic>)
 
 # ── Install ───────────────────────────────────────────────────────────────────
 # cmake --install build  →  copies binaries to bin/ (matches make install)
@@ -209,6 +208,16 @@ foreach(test IN LISTS _UTEST_SOURCES)
              WORKING_DIRECTORY ${_UTEST_DIR})
     set_tests_properties(utest_${test} PROPERTIES LABELS "utest")
 endforeach()
+
+# NTRIP v2 chunked codec test (header-only, no library dependency)
+add_executable(t_ntrip ${_UTEST_DIR}/t_ntrip.c)
+# Override global -ansi (=C90) for this target, same as mrtklib target.
+# Note: set_property(C_STANDARD 11) and target_compile_features(c_std_11) do NOT
+# override -ansi from add_compile_options(); explicit -std=c11 is required.
+target_compile_options(t_ntrip PRIVATE -std=c11)
+add_test(NAME utest_t_ntrip COMMAND t_ntrip
+         WORKING_DIRECTORY ${_UTEST_DIR})
+set_tests_properties(utest_t_ntrip PROPERTIES LABELS "utest")
 
 # ── RINEX 4 test data fixture (decompress BRD400 NAV) ────────────────────────
 set(_RINEX4_DIR ${CMAKE_SOURCE_DIR}/tests/data/rinex4)

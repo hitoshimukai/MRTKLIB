@@ -93,6 +93,9 @@ nav:
   - User Guide:
     - CLI Reference: guide/cli.md
     - Configuration (TOML): guide/configuration.md
+    - "Quick Start: CLAS PPP-RTK": guide/quickstart-clas.md
+    - "Quick Start: MADOCA-PPP": guide/quickstart-madoca-ppp.md
+    - NTRIP Streams: guide/ntrip.md
   - Hardware:
     - CLAS Positioning with mosaic-G5: hardware/cssr2rtcm3-mosaic-g5.md
   - Reference:
@@ -103,6 +106,8 @@ nav:
     - Test Methodology: reference/test-accuracy-methodology.md
   - Releases:
     - Changelog: releases/changelog.md
+    - v0.6.4: releases/release-notes-v0.6.4.md
+    - v0.6.3: releases/release-notes-v0.6.3.md
     - v0.6.2: releases/release-notes-v0.6.2.md
     - v0.6.1: releases/release-notes-v0.6.1.md
     - v0.6.0: releases/release-notes-v0.6.0.md

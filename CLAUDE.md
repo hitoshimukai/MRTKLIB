@@ -45,12 +45,13 @@ feature expansion.
 | **v0.6.0** | All | Unified `mrtk` binary with subcommands; BSS reduced 3 GB → 34 MB | ✅ Released |
 | **v0.6.1** | All | Config UX: `systems` list, `excluded_sats`, `taplo` formatter | ✅ Released |
 | **v0.6.2** | — | MkDocs Material site + Doxygen API reference + GitHub Pages | ✅ Released |
-| **v0.6.3** | PPP-RTK | `mrtk cssr2rtcm3`: real-time CLAS CSSR→RTCM3 MSM4 converter for VRS use | ✅ Released |
+| **v0.6.3** | Stream | NTRIP v2 (HTTP/1.1) protocol support with auto-negotiation, chunked transfer encoding, URL percent-decoding | ✅ Released |
+| **v0.6.4** | rtkrcv / Repo | rtkrcv status-path stability fixes (data race + OOB + async-signal-safe SIGSEGV handler); GitHub Community Profile | ✅ Released |
 | **v0.6.x** | All | Doxygen docstring coverage expansion | 💭 Backlog |
 
 ### Test Status
 
-Run `cd build && ctest --output-on-failure` to get current counts. Last known: 59 tests passing.
+Run `cd build && ctest --output-on-failure` to get current counts. Last known: 62 tests passing.
 
 ---
 

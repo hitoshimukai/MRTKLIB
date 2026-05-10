@@ -55,7 +55,8 @@ incrementally back-ported to each engine:
 | **v0.6.0** | All | Single CLI App: Unified `mrtk` binary with subcommands (`run`, `post`, `relay`, `convert`, etc.); BSS reduced from 3 GB to 34 MB | ✅ Released |
 | **v0.6.1** | All | Config UX: `systems` string list, `excluded_sats` list, `taplo` formatter, section reorganization | ✅ Released |
 | **v0.6.2** | — | Documentation: MkDocs Material site + Doxygen API reference + GitHub Pages deployment | ✅ Released |
-| **v0.6.3** | PPP-RTK | CSSR→RTCM3: Real-time CLAS CSSR to RTCM3 MSM4 converter (`mrtk cssr2rtcm3`) for VRS use | ✅ Released |
+| **v0.6.3** | Stream | NTRIP v2 (HTTP/1.1) protocol support with auto-negotiation, chunked transfer encoding, URL percent-decoding | ✅ Released |
+| **v0.6.4** | rtkrcv / Repo | rtkrcv status-path stability fixes (data race + OOB + async-signal-safe SIGSEGV handler); GitHub Community Profile (issue/PR templates, labels, CONTRIBUTING/SECURITY/CoC) | ✅ Released |
 | **v0.6.x** | All | Doxygen docstring coverage expansion | 💭 Backlog |
 
 > [!NOTE]
@@ -81,6 +82,15 @@ incrementally back-ported to each engine:
 * **Real-time CLAS L6D**: Dual-channel support uses stream 3 for L6 ch1 and stream 2 (base slot, unused in PPP-RTK) for L6 ch2.
 * **Real-time L6E**: The rtksvr provides a single correction input (`inpstr3`). Multiple QZSS L6E channels (e.g., QZS-3 and QZS-4) are supported when the receiver multiplexes them into one SBF stream.
 * **Real-time PPP-AR+iono**: Ionospheric STEC correction via L6D is available in CLAS PPP-RTK mode but not in the MADOCA PPP-AR+iono path (post-processing only).
+
+## 📊 Live Dashboard
+
+Real-time CLAS PPP-RTK positioning performance can be monitored on a public Grafana dashboard:
+
+> **[CLAS Summary Dashboard](http://34.84.98.16:3000/d/adsw2jc/clas-summary-dashboard)**
+
+The dashboard shows fix rate, ENU accuracy, satellite visibility, and correction age
+streamed from an active `mrtk run` session.
 
 ---
 
