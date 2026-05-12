@@ -118,7 +118,7 @@ if(UNIX AND NOT APPLE)
 endif()
 
 # ── System LAPACK/BLAS integration for fast matrix operations ────────────────
-# Force LP64 BLAS/LAPACK integer ABI; ILP64 silently breaks our int* wrappers (#108).
+# Request LP64 BLAS/LAPACK integer ABI; ILP64 silently breaks our int* wrappers (#108).
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.22")
     if(DEFINED BLA_SIZEOF_INTEGER AND NOT "${BLA_SIZEOF_INTEGER}" STREQUAL "4")
         message(FATAL_ERROR
