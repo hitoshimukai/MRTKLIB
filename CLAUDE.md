@@ -119,7 +119,8 @@ mrtklib/
 
 ### Formatting
 
-`.clang-format` (Google base) is authoritative. Run before committing.
+- **C / C++:** `.clang-format` (Google base) is authoritative. Run before committing.
+- **TOML:** `taplo` is the formatter, configured by `taplo.toml` at the repo root. Run `taplo fmt` (or use the VS Code "Even Better TOML" extension) on any edit under `conf/`, root-level config files, or new TOML samples before committing.
 
 ### Style — what NOT to add
 
@@ -144,6 +145,22 @@ These hurt the codebase. Don't do them even if they seem helpful:
 | Coverage      | `cd build && ctest -T Coverage`                        |
 
 For long ctest runs (regression tests can take several minutes), prefer launching a `test-summarizer` subagent so the main context is not blocked. See §9.3.
+
+### Unified `mrtk` binary
+
+Since v0.6.0 the historical separate binaries (`rtkrcv`, `rnx2rtkp`, `convbin`, `str2str`, …) are consolidated into a single `mrtk` executable with subcommands. Use the unified form in new code, scripts, documentation, and configuration:
+
+| Subcommand   | Replaces / role                                          |
+|--------------|----------------------------------------------------------|
+| `mrtk run`   | `rtkrcv` — real-time positioning pipeline                |
+| `mrtk post`  | `rnx2rtkp` — post-processing positioning                 |
+| `mrtk relay` | `str2str` — relay and split data streams                 |
+| `mrtk convert` | `convbin` — raw → RINEX conversion                    |
+| `mrtk cssr2rtcm3` | Real-time CLAS CSSR → RTCM3 MSM converter (VRS)     |
+| `mrtk l6extract` | Extract L6 frames from SBF/UBX to per-PRN files       |
+| `mrtk ssr2obs` / `ssr2osr` / `bias` / `dump` / `sbf2l6` | utilities |
+
+Run `./build/mrtk --help` for the current full list and per-subcommand help via `./build/mrtk <sub> --help`. The legacy binaries are no longer built.
 
 ---
 
@@ -192,6 +209,19 @@ MRTKLIB requires an **LP64** BLAS/LAPACK provider (32-bit integer interface). On
 This is a *hint*, not enforcement: `FindBLAS.cmake` uses `BLA_SIZEOF_INTEGER` to pick between library-name candidates (e.g. `openblas` vs `openblas64`), but does not verify the resolved library's ABI. On platforms where the ILP64 build is shipped under the LP64 filename (NixOS being one), an ILP64 library can still be linked silently. Crashes in `utest_t_matrix` or any LAPACK call are the canonical symptom; the remediation is to pass an explicit LP64 provider via `CMAKE_PREFIX_PATH` or `BLAS_LIBRARIES`.
 
 Documentation and code comments should use *requests* / *hint* wording rather than *enforces* / *forces*.
+
+### 7.7 Antenna PCV array width: `NFREQPCV`, not `NFREQ`
+
+Two constants in `include/mrtklib/mrtk_foundation.h`:
+
+- `NFREQ = 3`     — number of carrier frequencies used by the positioning engines
+- `NFREQPCV = 12` — number of carrier frequencies stored in `pcv_t` (antenna phase-center parameters)
+
+`antmodel()` and `antmodel_s()` in `src/models/mrtk_antenna.c` loop `for (i = 0; i < NFREQPCV; i++)` and write **12 elements** into the output `double *dant` argument. The function signature gives no size hint, and the docstring only says "range offsets for each frequency".
+
+Callers that allocate `double dant[NFREQ]` (= 3 elements) and pass it to `antmodel()` will overflow the buffer by 9 doubles. The symptom is silent stack/heap corruption that only triggers when a non-zero PCV value is written into one of the upper slots.
+
+**Rule:** When calling `antmodel()` / `antmodel_s()`, the output buffer must be sized `NFREQPCV` (or `MAXFREQ`, whichever is in use locally). Audit any new caller for this. Do not change the loop bound to `NFREQ` without auditing every caller of `pcv_t`-aware code first.
 
 ---
 
