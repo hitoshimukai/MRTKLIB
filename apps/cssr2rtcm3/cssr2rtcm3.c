@@ -58,6 +58,7 @@
 #include "mrtklib/mrtk_stream.h"
 #include "mrtklib/mrtk_rcvraw.h"
 #include "mrtklib/mrtk_toml.h"
+#include "mrtklib/mrtk_version.h"
 
 /* constants and macros ------------------------------------------------------*/
 
@@ -1088,6 +1089,16 @@ static int encode_and_send_rtcm3(stream_t *strm_out, rtcm_t *rtcm,
     /* broadcast ephemeris for IODE synchronization with rover */
     total += send_ephemeris(strm_out, rtcm, obs, nav);
 
+    /* receiver / antenna descriptor (1033); sync=1 — 1006 follows.
+     * mosaic-CLAS emits 1033 every epoch alongside 1006, so we mirror that
+     * cadence rather than throttling. This identifies the (virtual) base
+     * receiver to the rover and avoids the rover applying a default-type
+     * receiver bias when the descriptor is silent (#122 Finding 2). */
+    if (gen_rtcm3(rtcm, 1033, 0, 1)) {
+        strwrite(strm_out, rtcm->buff, rtcm->nbyte);
+        total += rtcm->nbyte;
+    }
+
     /* station coordinates message (1006); sync=1 — MSM follows */
     if (gen_rtcm3(rtcm, 1006, 0, 1)) {
         strwrite(strm_out, rtcm->buff, rtcm->nbyte);
@@ -1409,6 +1420,20 @@ int mrtk_cssr2rtcm3(int argc, char **argv)
         fprintf(stderr, "RTCM init error.\n");
         goto cleanup;
     }
+
+    /* Issue #98 / #122 Finding 2: populate sta descriptors so we can emit
+     * RTCM3 1033 (receiver and antenna descriptor). The VRS has no real
+     * antenna, so antdes / antsno stay empty; receiver-side fields identify
+     * MRTKLIB cssr2rtcm3 so the rover (e.g. mosaic-G5) sees a valid base
+     * receiver record instead of inferring defaults from a silent stream. */
+    rtcm->sta.antdes[0] = '\0';
+    rtcm->sta.antsno[0] = '\0';
+    rtcm->sta.antsetup = 0;
+    strncpy(rtcm->sta.rectype, "MRTKLIB cssr2rtcm3", sizeof(rtcm->sta.rectype) - 1);
+    rtcm->sta.rectype[sizeof(rtcm->sta.rectype) - 1] = '\0';
+    snprintf(rtcm->sta.recver, sizeof(rtcm->sta.recver), "%s %s",
+             MRTKLIB_SOFTNAME, MRTKLIB_VERSION_STRING);
+    rtcm->sta.recsno[0] = '\0';
 
     /* read grid definition file */
     if (filopt.grid[0]) {
