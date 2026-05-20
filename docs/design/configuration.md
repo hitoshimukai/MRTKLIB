@@ -69,8 +69,12 @@ unacceptable for a reference implementation.
 
 The current `mode` enum fuses **engine** and **dynamics** — including the
 position-fixed value `PMODE_PPP_FIXED`, which constrains the receiver to known
-coordinates (dynamics = `fixed`), *not* an AR setting. **armode** is already a
-separate key (`[ambiguity_resolution].mode`); it is not part of `mode`.
+coordinates (dynamics = `fixed`), *not* an AR setting. Concretely, the literal
+`mode` values combine the two axes: the `ppp` engine appears as `ppp-static` /
+`ppp-kine` / `ppp-fixed`, the `rtk` engine as `static` / `kinematic` / `fixed`
+/ `movingbase` (no `rtk-` prefix), while `ppp-rtk` and `vrs-rtk` are currently
+kinematic-only. **armode** is already a separate key
+(`[ambiguity_resolution].mode`); it is not part of `mode`.
 **correction** is the only axis left implicit (inferred from the input stream
 format). This document pulls `correction` out as its own key; the `dynamics`
 double-encoding and the missing `ppp-rtk` / `vrs-rtk` dynamics variants are
@@ -118,22 +122,27 @@ combination is a **hard error at load time** (fail fast, with a message that
 names both values and lists the accepted set) — it is never silently
 "corrected" to something else.
 
-| `mode` (engine) | accepted `correction` |
-|-----------------|-----------------------|
-| `ppp-static` / `ppp-kinematic` / `ppp-fixed` | `igs`, `qzs-madoca`, `gal-has`†, `bds-b2b`†, `igs-rts`† |
+The left column uses the **current literal `mode` values** (Phase 1 leaves
+`mode` unchanged): PPP modes carry a `ppp-` prefix, while the RTK / relative
+modes are bare words (no `rtk-` prefix).
+
+| `mode` value | accepted `correction` |
+|--------------|-----------------------|
+| `ppp-static` / `ppp-kine` / `ppp-fixed` | `igs`, `qzs-madoca`, `gal-has`†, `bds-b2b`†, `igs-rts`† |
 | `ppp-rtk` | `qzs-clas` |
 | `vrs-rtk` | `qzs-clas` |
-| `rtk-*` | `none` |
+| `kinematic` / `static` / `fixed` / `movingbase` | `none` |
 | `dgps` | `none` |
 | `single` | `none` |
 
 † Reserved value — accepted by the matrix but rejected with an explicit
 "not implemented" error until the corresponding decoder lands (§7).
 
-Dynamics (`-static` / `-kinematic` / `-fixed`) is independent of `correction`:
-all three accept the same sources. `-fixed` constrains the receiver to known
-coordinates and removes position from the estimator — valuable for residual
-analysis (so e.g. `ppp-fixed × igs` is fully valid). This is **not** integer
+Dynamics (static / kinematic / fixed) is independent of `correction`: all three
+accept the same sources. The fixed variant (`ppp-fixed`) constrains the receiver
+to known coordinates and removes position from the estimator — valuable for
+residual analysis (so e.g. `ppp-fixed × igs` is fully valid). This is **not**
+integer
 ambiguity resolution; AR is the separate `armode` setting. IGS *integer*
 PPP-AR (`armode` ≠ off with `igs`) additionally needs a phase-bias product and
 is deferred to Phase 2 (§5, §6.3); Phase-1 `igs` is float.
@@ -144,8 +153,9 @@ ported from CLASLIB `rtkvrs.c`) converts the CLAS corrections to virtual-
 reference OSR — via `ssr2osr` / `cssr2rtcm3` — and positions by
 double-differencing. MRTKLIB's `vrs-rtk` is therefore **CLAS-specific**, not a
 generic network-VRS client. A commercial network VRS (RTCM-OSR streamed from a
-caster) is *not* this engine: it is the standard `rtk` engine with that stream
-as its base, i.e. `mode = rtk-*`, `correction = none`.
+caster) is *not* this engine: it is the standard RTK / relative engine with
+that stream as its base, i.e. `mode = kinematic` (or `static` / `fixed`),
+`correction = none`.
 
 ## 5. `corr_meas` branch specification (minimal)
 
@@ -181,11 +191,11 @@ IGS path fails. Phase 1 introduces a branch on `correction`:
       ambiguity** state (already present in `pppos`) absorbs it. Integer PPP-AR
       with `igs` (i.e. `armode` ≠ off) needs a phase-bias product and the
       `nav->osb` wiring — deferred to Phase 2 (§6.3); Phase-1 `igs` is float.
-      Dynamics `-static`/`-kinematic`/`-fixed` all work — `-fixed` is the
+      Dynamics static / kinematic / fixed all work — `ppp-fixed` is the
       known-coordinate residual-analysis case.
 
 **No-correction path** — `correction = none`
-: No satellite bias applied. Used by `single` / `dgps` / `rtk` (these engines
+: No satellite bias applied. Used by `single` / `dgps` / the RTK relative modes (these engines
   do not route through `corr_meas`, but the branch is defined for completeness
   and to make the matrix total).
 
@@ -210,7 +220,7 @@ source is inferred so those configs keep working unchanged:
 |---------------|--------------|
 | input stream format `STRFMT_L6E` | `qzs-madoca` |
 | input stream format `STRFMT_CLAS`, or `mode` is `ppp-rtk` / `vrs-rtk` | `qzs-clas` |
-| `mode` is `single` / `dgps` / `rtk-*` | `none` |
+| `mode` is `single` / `dgps` / `kinematic` / `static` / `fixed` / `movingbase` | `none` |
 | otherwise (PPP mode, no SSR stream) | `igs` |
 
 The inference is a compatibility shim, not the recommended form. New configs
@@ -247,11 +257,12 @@ integrity reference runs) and is **not** deprecated. AR is the independent
 
 Phase-2 items:
 
-1. **`dynamics` double-encoding.** The `-static` / `-kinematic` / `-fixed`
-   suffix of `mode` and the separate `dynamics` boolean both touch the
+1. **`dynamics` double-encoding.** The dynamics value baked into `mode`
+   (`ppp-static` / `ppp-kine` / `ppp-fixed`; bare `static` / `kinematic` /
+   `fixed` for RTK) and the separate `dynamics` boolean both encode the
    dynamics axis (the boolean adds velocity/acceleration states). Consolidate
-   to one representation — likely keep the suffix and derive the boolean — for
-   RTKLIB compatibility.
+   to one representation — likely keep the `mode` value and derive the boolean
+   — for RTKLIB compatibility.
 
 2. **`ppp-rtk` / `vrs-rtk` dynamics symmetry.** The CLAS engines are currently
    kinematic-only, while the PPP engine exposes static/kinematic/fixed. Extend
