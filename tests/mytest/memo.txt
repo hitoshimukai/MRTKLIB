@@ -1,4 +1,4 @@
-./mrtk run -s --config ./conf/rtkrcv.toml --port 2105 -m 60001
+./mrtk run -s --config rtkrcv.toml --port 2105 -m 60001
 
 telnet localhost 2105
 nc localhost 60001
