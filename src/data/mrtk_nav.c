@@ -195,8 +195,8 @@ static obsdef_t obsdef_GLO[MAXFREQ] = {
 static obsdef_t obsdef_GAL[MAXFREQ] = {
     /* freq-index:freq */
     {1, FREQ1}, /* 0:E1  (MRTK_BAND_GAL_E1)  */
-    {5, FREQ5}, /* 1:E5a (MRTK_BAND_GAL_E5a) */
     {7, FREQ7}, /* 2:E5b (MRTK_BAND_GAL_E5b) */
+    {5, FREQ5}, /* 1:E5a (MRTK_BAND_GAL_E5a) */
     {6, FREQ6}, /* 3:E6  (MRTK_BAND_GAL_E6)  */
     {8, FREQ8}, /* 4:E5ab(MRTK_BAND_GAL_E5ab)*/
     {0, 0.0},   /* 5 */
@@ -205,8 +205,8 @@ static obsdef_t obsdef_GAL[MAXFREQ] = {
 static obsdef_t obsdef_QZS[MAXFREQ] = {
     /* freq-index:freq */
     {1, FREQ1}, /* 0:L1 (MRTK_BAND_QZS_L1) */
-    {5, FREQ5}, /* 1:L5 (MRTK_BAND_QZS_L5) */
     {2, FREQ2}, /* 2:L2 (MRTK_BAND_QZS_L2) */
+    {5, FREQ5}, /* 1:L5 (MRTK_BAND_QZS_L5) */
     {6, FREQ6}, /* 3:L6 (MRTK_BAND_QZS_L6) */
     {0, 0.0},   /* 4 */
     {0, 0.0},   /* 5 */
