@@ -101,15 +101,16 @@ pins the provider. `none` is the absence of an augmentation source.
 ```toml
 [positioning]
 mode       = "ppp-static"   # engine + dynamics (unchanged in Phase 1)
-correction = "igs"          # NEW: correction source (case-insensitive)
+correction = "igs"          # NEW: correction source
 ```
 
 - `correction` is the **single source of truth** for the correction source.
   It selects, in one place: (a) which decoder/loader runs, (b) the bias
   branch inside `corr_meas` (§5), and (c) the default value of
   `satellite_ephemeris`.
-- The value is **case-insensitive** (`"IGS"`, `"igs"`, `"Igs"` all accepted),
-  consistent with the existing `systems` / `excluded_sats` handling.
+- Values are lowercase. *(Design intent: case-insensitive matching like the
+  `systems` list. Phase 1 parses case-sensitively via the existing `str2enum`;
+  case-insensitive enum matching is a follow-up.)*
 - `correction` is **optional but recommended**. Setting it explicitly is the
   canonical form; when omitted, it is inferred for backward compatibility
   (§6.1), and that inference is a compatibility shim, not the intended way to
