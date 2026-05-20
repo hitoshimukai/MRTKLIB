@@ -28,6 +28,8 @@
 #ifndef MRTK_OPT_H
 #define MRTK_OPT_H
 
+#include <stddef.h> /* size_t */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -354,7 +356,7 @@ extern const solopt_t solopt_default;
 
 /* resolve correction source (CORR_AUTO) and validate the (mode, correction)
  * combination; returns 1 on success, 0 with msg set on an invalid combination */
-extern int resolve_correction(prcopt_t* opt, char* msg);
+extern int resolve_correction(prcopt_t* opt, char* msg, size_t msgsz);
 
 #ifdef __cplusplus
 }

@@ -524,7 +524,7 @@ static int startsvr(vt_t* vt) {
     /* resolve/validate correction source against the positioning mode */
     {
         char cmsg[256] = "";
-        if (!resolve_correction(&prcopt, cmsg)) {
+        if (!resolve_correction(&prcopt, cmsg, sizeof(cmsg))) {
             trace(NULL, 1, "startsvr: %s\n", cmsg);
             if (vt) {
                 vt_printf(vt, "error: %s\n", cmsg);

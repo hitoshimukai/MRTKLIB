@@ -305,7 +305,7 @@ int mrtk_post(int argc, char** argv) {
     }
     {
         char cmsg[256] = "";
-        if (!resolve_correction(&prcopt, cmsg)) {
+        if (!resolve_correction(&prcopt, cmsg, sizeof(cmsg))) {
             fprintf(stderr, "error : %s\n", cmsg);
             mrtk_context_free(g_mrtk_legacy_ctx);
             g_mrtk_ctx = NULL;

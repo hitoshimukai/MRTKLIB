@@ -100,10 +100,11 @@ const solopt_t solopt_default = {
  * omit `correction`), reject reserved-but-unimplemented sources, and enforce the
  * (mode, correction) validity matrix. See docs/design/configuration.md.
  * args   : prcopt_t *opt   IO  processing options (opt->correction resolved in place)
- *          char     *msg   O   error text on failure (caller buffer, >=128 bytes)
+ *          char     *msg   O   error text on failure (caller buffer)
+ *          size_t    msgsz I   size of msg buffer
  * return : status (1:ok, 0:invalid combination -> caller should abort)
  *--------------------------------------------------------------------------*/
-extern int resolve_correction(prcopt_t* opt, char* msg) {
+extern int resolve_correction(prcopt_t* opt, char* msg, size_t msgsz) {
     int m = opt->mode;
 
     /* infer when not explicitly configured (correction omitted -> CORR_AUTO) */
@@ -120,19 +121,20 @@ extern int resolve_correction(prcopt_t* opt, char* msg) {
     /* reserved sources: present in the schema but not implemented yet */
     if (opt->correction == CORR_IGS_RTS || opt->correction == CORR_GAL_HAS || opt->correction == CORR_BDS_B2B) {
         if (msg) {
-            sprintf(msg, "correction source not implemented yet (correction=%d)", opt->correction);
+            snprintf(msg, msgsz, "correction source not implemented yet (correction=%d)", opt->correction);
         }
         return 0;
     }
 
-    /* validity matrix (enforced for the PPP-class engines; other modes ignore it) */
+    /* validity matrix (see docs/design/configuration.md) */
     switch (m) {
         case PMODE_PPP_KINEMA:
         case PMODE_PPP_STATIC:
         case PMODE_PPP_FIXED:
             if (opt->correction != CORR_IGS && opt->correction != CORR_QZS_MADOCA) {
                 if (msg) {
-                    sprintf(msg, "invalid correction=%d for PPP mode (use igs or qzs-madoca)", opt->correction);
+                    snprintf(msg, msgsz, "invalid correction=%d for PPP mode (use igs or qzs-madoca)",
+                             opt->correction);
                 }
                 return 0;
             }
@@ -141,13 +143,19 @@ extern int resolve_correction(prcopt_t* opt, char* msg) {
         case PMODE_VRS_RTK:
             if (opt->correction != CORR_QZS_CLAS) {
                 if (msg) {
-                    sprintf(msg, "invalid correction=%d for ppp-rtk/vrs-rtk (use qzs-clas)", opt->correction);
+                    snprintf(msg, msgsz, "invalid correction=%d for ppp-rtk/vrs-rtk (use qzs-clas)", opt->correction);
                 }
                 return 0;
             }
             break;
         default:
-            /* single / dgps / rtk-relative / ssr2osr: correction axis not applicable */
+            /* single / dgps / rtk-relative / ssr2osr: no augmentation source allowed */
+            if (opt->correction != CORR_NONE) {
+                if (msg) {
+                    snprintf(msg, msgsz, "invalid correction=%d for mode=%d (use none)", opt->correction, m);
+                }
+                return 0;
+            }
             break;
     }
     return 1;

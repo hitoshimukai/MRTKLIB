@@ -595,10 +595,12 @@ static int corr_meas(const obsd_t* obs, const nav_t* nav, const double* azel, co
                 trace(NULL, tl > 0 ? 4 : 4, "corr_meas: %s cbias %s obscode=C%s ssrcode=C%s cbias=%7.3f\n", tstr, satid,
                       code2obs(obs->code[i]), code2obs(ssrcode), cb);
             } else {
-                if (!nav->ssr_ch[0][obs->sat - 1].vcbias[ssrcode - 1]) {
+                /* ssrcode==CODE_NONE has no SSR bias mapping for this signal: drop
+                 * the measurement (and short-circuit to avoid vcbias[-1] OOB). */
+                if (ssrcode == CODE_NONE || !nav->ssr_ch[0][obs->sat - 1].vcbias[ssrcode - 1]) {
                     P[i] = 0.0;
                     trace(NULL, tl > 0 ? 3 : 4,
-                          "corr_meas: %s cbias dose not exist. %s obscode=C%s ssrcode=C%s cbias=%7.3f\n", tstr, satid,
+                          "corr_meas: %s cbias does not exist. %s obscode=C%s ssrcode=C%s cbias=%7.3f\n", tstr, satid,
                           code2obs(obs->code[i]), code2obs(ssrcode), cb);
                 }
             }
@@ -613,10 +615,10 @@ static int corr_meas(const obsd_t* obs, const nav_t* nav, const double* azel, co
                 trace(NULL, tl > 0 ? 4 : 4, "corr_meas: %s pbias %s obscode=L%s ssrcode=L%s pbias=%7.3f\n", tstr, satid,
                       code2obs(obs->code[i]), code2obs(ssrcode), pb);
             } else if (sys != SYS_GLO) {
-                if (!nav->ssr_ch[0][obs->sat - 1].vpbias[ssrcode - 1]) {
+                if (ssrcode == CODE_NONE || !nav->ssr_ch[0][obs->sat - 1].vpbias[ssrcode - 1]) {
                     L[i] = 0.0;
                     trace(NULL, tl > 0 ? 3 : 4,
-                          "corr_meas: %s pbias dose not exist. %s obscode=C%s ssrcode=C%s pbias=%7.3f\n", tstr, satid,
+                          "corr_meas: %s pbias does not exist. %s obscode=C%s ssrcode=C%s pbias=%7.3f\n", tstr, satid,
                           code2obs(obs->code[i]), code2obs(ssrcode), pb);
                 }
             }
