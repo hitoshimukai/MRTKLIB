@@ -4,7 +4,7 @@
 
 [positioning]
 mode = "ppp-static"
-frequency = "l1+2+3"
+frequency = "l1+2"
 solution_type = "combined"
 elevation_mask = 15.0
 dynamics = false
