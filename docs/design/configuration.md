@@ -316,5 +316,7 @@ dispatch key.
   a top-level positioning key for parity with the other three axes — cosmetic,
   Phase 2.
 
+---
+
 This document is published under the **Design** section of the MkDocs site;
 future architecture / roadmap design notes are collected there alongside it.
