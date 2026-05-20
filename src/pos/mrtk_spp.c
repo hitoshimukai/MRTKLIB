@@ -125,7 +125,7 @@ static int snrmask(const obsd_t* obs, const double* azel, const prcopt_t* opt) {
 /* psendorange with code bias correction -------------------------------------*/
 static double prange(const obsd_t* obs, const nav_t* nav, const prcopt_t* opt, double* var) {
     double P1, P2, gamma, b1, b2, freq1, freq2;
-    int sat, sys;
+    int sat, sys, i2 = 1;
 
     sat = obs->sat;
     sys = satsys(sat, NULL);
@@ -133,12 +133,28 @@ static double prange(const obsd_t* obs, const nav_t* nav, const prcopt_t* opt, d
     P2 = obs->P[1];
     *var = 0.0;
 
+    /* #135: for IGS-product PPP, if the conventional 2nd frequency (slot 1) carries
+     * no observation (e.g. u-blox F9P delivers GAL E5b / BDS B2I in slot 2 with the
+     * nominal slot-1 band E5a/B3I absent), fall back to the first populated higher
+     * slot so the iono-free combination can still be formed. No-op when slot 1 is
+     * present, so all existing dual-frequency data is bit-identical. */
+    if (opt->ionoopt == IONOOPT_IFLC && opt->correction == CORR_IGS && P2 == 0.0) {
+        int j;
+        for (j = 2; j < NFREQ; j++) {
+            if (obs->P[j] != 0.0 && sat2freq(sat, obs->code[j], nav) != 0.0) {
+                i2 = j;
+                P2 = obs->P[j];
+                break;
+            }
+        }
+    }
+
     if (P1 == 0.0 || (opt->ionoopt == IONOOPT_IFLC && P2 == 0.0)) {
         return 0.0;
     }
 
     freq1 = sat2freq(sat, obs->code[0], nav);
-    freq2 = sat2freq(sat, obs->code[1], nav);
+    freq2 = sat2freq(sat, obs->code[i2], nav);
     gamma = SQR(freq1 / freq2);
 
     /* P1-C1,P2-C2 DCB correction */
@@ -146,7 +162,7 @@ static double prange(const obsd_t* obs, const nav_t* nav, const prcopt_t* opt, d
         if (obs->code[0] == CODE_L1C) {
             P1 += nav->cbias[sat - 1][1]; /* C1->P1 */
         }
-        if (obs->code[1] == CODE_L2C) {
+        if (obs->code[i2] == CODE_L2C) {
             P2 += nav->cbias[sat - 1][2]; /* C2->P2 */
         }
     }
