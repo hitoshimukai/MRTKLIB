@@ -587,24 +587,30 @@ static geph_t* selgeph(gtime_t time, int sat, int iode, const nav_t* nav) {
 
     for (i = 0; i < nav->ng; i++) {
         if (nav->geph[i].sat != sat) {
+            //printf("selgeph(1): skip geph[%d].sat=%2d sat=%2d\n", i, nav->geph[i].sat, sat);
             continue;
         }
         if (iode >= 0 && nav->geph[i].iode != iode) {
+            //printf("selgeph(2): skip geph[%d].iode=%2d iode=%2d\n", i, nav->geph[i].iode, iode);
             continue;
         }
         if ((t = fabs(timediff(nav->geph[i].toe, time))) > tmax) {
+            //printf("selgeph(3): nav->geph[%d] t=%f tmax=%f\n", i, t, tmax);
             continue;
         }
         if (iode >= 0) {
+            //printf("selgeph(4): select geph[%d] iode=%2d\n", i, nav->geph[i].iode);
             return nav->geph + i;
         }
         if (t <= tmin) {
+            //printf("selgeph(5): select geph[%d] t=%f tmin=%f\n", i, t, tmin);
             j = i;
             tmin = t;
         } /* toe closest to time */
     }
     if (iode >= 0 || j < 0) {
         trace(NULL, 3, "no glonass ephemeris  : %s sat=%2d iode=%2d\n", time_str(time, 0), sat, iode);
+        //printf("no glonass ephemeris  : %s sat=%2d iode=%2d\n", time_str(time, 0), sat, iode);
         return NULL;
     }
     return nav->geph + j;
