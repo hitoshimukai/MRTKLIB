@@ -19,6 +19,8 @@
  */
 #include "mrtklib/mrtk_opt.h"
 
+#include <stdio.h>
+
 /*--- local constants (duplicated to avoid rtklib.h dependency) -------------*/
 static const double D2R = 3.1415926535897932 / 180.0;
 
@@ -81,7 +83,8 @@ const prcopt_t prcopt_default = {
     0,
     0,
     0,
-    0 /* pppsatcb,pppsatpb,unbias,maxbiasdt */
+    0, /* pppsatcb,pppsatpb,unbias,maxbiasdt */
+    .correction = CORR_AUTO,
 };
 const solopt_t solopt_default = {
     /* defaults solution output options */
@@ -91,3 +94,103 @@ const solopt_t solopt_default = {
     {0.0, 0.0},                            /* nmeaintv */
     " ",        ""                         /* separator/program name */
 };
+
+/* resolve and validate correction source ------------------------------------
+ * Resolve CORR_AUTO from mode + sateph (backward compatibility for configs that
+ * omit `correction`), reject reserved-but-unimplemented sources, and enforce the
+ * (mode, correction) validity matrix. See docs/design/configuration.md.
+ * args   : prcopt_t *opt   IO  processing options (opt->correction resolved in place)
+ *          char     *msg   O   error text on failure (caller buffer)
+ *          size_t    msgsz I   size of msg buffer
+ * return : status (1:ok, 0:invalid combination -> caller should abort)
+ *--------------------------------------------------------------------------*/
+/* human-readable names for resolve_correction() error messages -------------*/
+static const char* corr_name(int corr) {
+    switch (corr) {
+        case CORR_AUTO:       return "auto";
+        case CORR_NONE:       return "none";
+        case CORR_IGS:        return "igs";
+        case CORR_IGS_RTS:    return "igs-rts";
+        case CORR_QZS_MADOCA: return "qzs-madoca";
+        case CORR_GAL_HAS:    return "gal-has";
+        case CORR_BDS_B2B:    return "bds-b2b";
+        case CORR_QZS_CLAS:   return "qzs-clas";
+        default:              return "?";
+    }
+}
+static const char* mode_name(int mode) {
+    switch (mode) {
+        case PMODE_SINGLE:      return "single";
+        case PMODE_DGPS:        return "dgps";
+        case PMODE_KINEMA:      return "kinematic";
+        case PMODE_STATIC:      return "static";
+        case PMODE_MOVEB:       return "movingbase";
+        case PMODE_FIXED:       return "fixed";
+        case PMODE_PPP_KINEMA:  return "ppp-kine";
+        case PMODE_PPP_STATIC:  return "ppp-static";
+        case PMODE_PPP_FIXED:   return "ppp-fixed";
+        case PMODE_PPP_RTK:     return "ppp-rtk";
+        case PMODE_SSR2OSR:     return "ssr2osr";
+        case PMODE_SSR2OSR_FIXED:return "ssr2osr-fixed";
+        case PMODE_VRS_RTK:     return "vrs-rtk";
+        default:                return "?";
+    }
+}
+extern int resolve_correction(prcopt_t* opt, char* msg, size_t msgsz) {
+    int m = opt->mode;
+
+    /* infer when not explicitly configured (correction omitted -> CORR_AUTO) */
+    if (opt->correction == CORR_AUTO) {
+        if (m == PMODE_PPP_RTK || m == PMODE_VRS_RTK) {
+            opt->correction = CORR_QZS_CLAS;
+        } else if (m == PMODE_PPP_KINEMA || m == PMODE_PPP_STATIC || m == PMODE_PPP_FIXED) {
+            opt->correction = (opt->sateph == EPHOPT_PREC) ? CORR_IGS : CORR_QZS_MADOCA;
+        } else {
+            opt->correction = CORR_NONE;
+        }
+    }
+
+    /* reserved sources: present in the schema but not implemented yet */
+    if (opt->correction == CORR_IGS_RTS || opt->correction == CORR_GAL_HAS || opt->correction == CORR_BDS_B2B) {
+        if (msg) {
+            snprintf(msg, msgsz, "correction source not implemented yet (correction=%s)", corr_name(opt->correction));
+        }
+        return 0;
+    }
+
+    /* validity matrix (see docs/design/configuration.md) */
+    switch (m) {
+        case PMODE_PPP_KINEMA:
+        case PMODE_PPP_STATIC:
+        case PMODE_PPP_FIXED:
+            if (opt->correction != CORR_IGS && opt->correction != CORR_QZS_MADOCA) {
+                if (msg) {
+                    snprintf(msg, msgsz, "invalid correction=%s for mode=%s (use igs or qzs-madoca)",
+                             corr_name(opt->correction), mode_name(m));
+                }
+                return 0;
+            }
+            break;
+        case PMODE_PPP_RTK:
+        case PMODE_VRS_RTK:
+            if (opt->correction != CORR_QZS_CLAS) {
+                if (msg) {
+                    snprintf(msg, msgsz, "invalid correction=%s for mode=%s (use qzs-clas)", corr_name(opt->correction),
+                         mode_name(m));
+                }
+                return 0;
+            }
+            break;
+        default:
+            /* single / dgps / rtk-relative / ssr2osr: no augmentation source allowed */
+            if (opt->correction != CORR_NONE) {
+                if (msg) {
+                    snprintf(msg, msgsz, "invalid correction=%s for mode=%s (use none)", corr_name(opt->correction),
+                         mode_name(m));
+                }
+                return 0;
+            }
+            break;
+    }
+    return 1;
+}

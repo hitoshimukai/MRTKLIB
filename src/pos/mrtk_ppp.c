@@ -520,20 +520,51 @@ static double mwmeas(const obsd_t* obs, const nav_t* nav, int f) {
     return (obs->L[0] - obs->L[f]) * CLIGHT / (freq1 - freq2) -
            (freq1 * obs->P[0] + freq2 * obs->P[f]) / (freq1 + freq2);
 }
+/* notify the user once per system when IGS-PPP auto-selects a non-nominal 2nd band
+ * for the iono-free combination (#135). trace() is a no-op in release builds, so the
+ * primary channel is stderr. Per-process state is adequate for the post path. */
+static void ppp_note_autosig(int sys, uint8_t code) {
+    static int reported = 0; /* bitmask of SYS_* already notified */
+    const char* name;
+
+    if (reported & sys) {
+        return;
+    }
+    reported |= sys;
+
+    switch (sys) {
+        case SYS_GPS: name = "GPS"; break;
+        case SYS_GLO: name = "GLO"; break;
+        case SYS_GAL: name = "GAL"; break;
+        case SYS_QZS: name = "QZS"; break;
+        case SYS_CMP: name = "BDS"; break;
+        case SYS_IRN: name = "IRN"; break;
+        default:      name = "???"; break;
+    }
+    fprintf(stderr, "note: auto signal: %s iono-free 2nd freq = L%s (nominal band absent in data)\n", name,
+            code2obs(code));
+    trace(NULL, 1, "corr_meas: auto IFLC 2nd band sys=%s code=L%s\n", name, code2obs(code));
+}
 /* antenna corrected measurements --------------------------------------------*/
 static int corr_meas(const obsd_t* obs, const nav_t* nav, const double* azel, const prcopt_t* opt, const double* dantr,
                      const double* dants, double phw, double* L, double* P, double* Lc, double* Pc, int tl) {
     char satid[8], *tstr = time_str(obs->time, 3);
     double freq[NFREQ] = {0}, C1, C2, cb = 0.0, pb = 0.0;
-    int i, sys = satsys(obs->sat, NULL), ssrcode = CODE_NONE, ant_idx;
+    int i, i2 = 1, nfread, sys = satsys(obs->sat, NULL), ssrcode = CODE_NONE, ant_idx;
     int ssr_bias = 0;
+    int corr = opt->correction; /* correction source (CORR_???); selects the bias path below */
 
     if (strstr(opt->pppopt, "-SSR_BIAS")) {
         ssr_bias = 1;
     }
 
     satno2id(obs->sat, satid);
-    for (i = 0; i < opt->nf && i < NFREQ; i++) {
+    /* #135: for IGS-product PPP, prepare all main frequency slots (not just nf) so a
+     * receiver that delivers its 2nd band in slot 2 (e.g. GAL E5b / BDS B2I, with
+     * slot-1 E5a/B3I absent) still yields a usable second observation for the
+     * iono-free pair below. Other correction sources keep the nf-bounded loop. */
+    nfread = (corr == CORR_IGS && NFREQ > opt->nf) ? NFREQ : opt->nf;
+    for (i = 0; i < nfread && i < NFREQ; i++) {
         L[i] = P[i] = cb = pb = 0.0;
         freq[i] = sat2freq(obs->sat, obs->code[i], nav);
 
@@ -551,76 +582,110 @@ static int corr_meas(const obsd_t* obs, const nav_t* nav, const double* azel, co
         L[i] = obs->L[i] * CLIGHT / freq[i] - dants[ant_idx] - dantr[ant_idx] - phw * CLIGHT / freq[i];
         P[i] = obs->P[i] - dants[ant_idx] - dantr[ant_idx];
 
-        /* SSR cbias, pbias correction */
-        ssrcode = mcssr_sel_biascode(sys, obs->code[i]);
-
-        /* for backward compatible to IS-QZSS-MDC-003 */
-        if (sys == SYS_GPS && ssrcode == CODE_L5Q) {
-            if (nav->ssr_ch[0][obs->sat - 1].pbias[ssrcode - 1] == 0.0 &&
-                nav->ssr_ch[0][obs->sat - 1].cbias[ssrcode - 1] == 0.0) {
-                ssrcode = CODE_L5X;
+        if (corr == CORR_IGS) {
+            /* IGS precise products (files): RTKLIB-style float PPP. Apply optional
+             * P1-C1 / P2-C2 DCB from nav->cbias (GPS/GLO) if present; never discard
+             * the measurement for a missing satellite bias. The satellite phase bias
+             * is absorbed by the float phase-ambiguity state (no SSR pbias needed). */
+            if (sys == SYS_GPS || sys == SYS_GLO) {
+                if (obs->code[i] == CODE_L1C) {
+                    P[i] += nav->cbias[obs->sat - 1][1];
+                }
+                if (obs->code[i] == CODE_L2C) {
+                    P[i] += nav->cbias[obs->sat - 1][2];
+                }
             }
-        }
-
-        if (ssrcode != CODE_NONE) {
-            if (nav->ssr_ch[0][obs->sat - 1].pbias[ssrcode - 1] != 0.0) {
-                pb = nav->ssr_ch[0][obs->sat - 1].pbias[ssrcode - 1];
-            }
-            if (nav->ssr_ch[0][obs->sat - 1].cbias[ssrcode - 1] != 0.0) {
-                cb = nav->ssr_ch[0][obs->sat - 1].cbias[ssrcode - 1];
-            }
-        }
-        if (cb != 0.0) {
-            P[i] += cb;
-            trace(NULL, tl > 0 ? 4 : 4, "corr_meas: %s cbias %s obscode=C%s ssrcode=C%s cbias=%7.3f\n", tstr, satid,
-                  code2obs(obs->code[i]), code2obs(ssrcode), cb);
+        } else if (corr == CORR_NONE) {
+            /* no satellite bias correction (SPP/DGPS/RTK route through pntpos/relpos,
+             * not here; branch kept for completeness) */
         } else {
-            if (!nav->ssr_ch[0][obs->sat - 1].vcbias[ssrcode - 1]) {
-                P[i] = 0.0;
-                trace(NULL, tl > 0 ? 3 : 4,
-                      "corr_meas: %s cbias dose not exist. %s obscode=C%s ssrcode=C%s cbias=%7.3f\n", tstr, satid,
-                      code2obs(obs->code[i]), code2obs(ssrcode), cb);
-            }
-        }
-        if (cb <= (SSR_INVALID_CBIAS + 0.005)) {
-            P[i] = 0.0;
-            trace(NULL, tl > 0 ? 2 : 4, "corr_meas: %s invalid cbias %s obscode=C%s ssrcode=C%s cbias=%7.3f\n", tstr,
-                  satid, code2obs(obs->code[i]), code2obs(ssrcode), cb);
-        }
+            /* SSR path (qzs-madoca / gal-has / bds-b2b / igs-rts; also CORR_AUTO
+             * fallback). Satellite cbias/pbias come from nav->ssr_ch; a measurement
+             * with no valid SSR bias is dropped (required for PPP-AR, MADOCALIB design). */
+            ssrcode = mcssr_sel_biascode(sys, obs->code[i]);
 
-        if (pb != 0.0) {
-            L[i] += pb;
-            trace(NULL, tl > 0 ? 4 : 4, "corr_meas: %s pbias %s obscode=L%s ssrcode=L%s pbias=%7.3f\n", tstr, satid,
-                  code2obs(obs->code[i]), code2obs(ssrcode), pb);
-        } else if (sys != SYS_GLO) {
-            if (!nav->ssr_ch[0][obs->sat - 1].vpbias[ssrcode - 1]) {
-                L[i] = 0.0;
-                trace(NULL, tl > 0 ? 3 : 4,
-                      "corr_meas: %s pbias dose not exist. %s obscode=C%s ssrcode=C%s pbias=%7.3f\n", tstr, satid,
-                      code2obs(obs->code[i]), code2obs(ssrcode), pb);
+            /* for backward compatible to IS-QZSS-MDC-003 */
+            if (sys == SYS_GPS && ssrcode == CODE_L5Q) {
+                if (nav->ssr_ch[0][obs->sat - 1].pbias[ssrcode - 1] == 0.0 &&
+                    nav->ssr_ch[0][obs->sat - 1].cbias[ssrcode - 1] == 0.0) {
+                    ssrcode = CODE_L5X;
+                }
             }
-        }
-        if (pb <= (SSR_INVALID_PBIAS + 0.00005)) {
-            L[i] = 0.0;
-            trace(NULL, tl > 0 ? 2 : 4, "corr_meas: %s invalid pbias %s obscode=L%s ssrcode=L%s pbias=%7.3f\n", tstr,
-                  satid, code2obs(obs->code[i]), code2obs(ssrcode), pb);
+
+            if (ssrcode != CODE_NONE) {
+                if (nav->ssr_ch[0][obs->sat - 1].pbias[ssrcode - 1] != 0.0) {
+                    pb = nav->ssr_ch[0][obs->sat - 1].pbias[ssrcode - 1];
+                }
+                if (nav->ssr_ch[0][obs->sat - 1].cbias[ssrcode - 1] != 0.0) {
+                    cb = nav->ssr_ch[0][obs->sat - 1].cbias[ssrcode - 1];
+                }
+            }
+            if (cb != 0.0) {
+                P[i] += cb;
+                trace(NULL, tl > 0 ? 4 : 4, "corr_meas: %s cbias %s obscode=C%s ssrcode=C%s cbias=%7.3f\n", tstr, satid,
+                      code2obs(obs->code[i]), code2obs(ssrcode), cb);
+            } else {
+                /* ssrcode==CODE_NONE has no SSR bias mapping for this signal: drop
+                 * the measurement (and short-circuit to avoid vcbias[-1] OOB). */
+                if (ssrcode == CODE_NONE || !nav->ssr_ch[0][obs->sat - 1].vcbias[ssrcode - 1]) {
+                    P[i] = 0.0;
+                    trace(NULL, tl > 0 ? 3 : 4,
+                          "corr_meas: %s cbias does not exist. %s obscode=C%s ssrcode=C%s cbias=%7.3f\n", tstr, satid,
+                          code2obs(obs->code[i]), code2obs(ssrcode), cb);
+                }
+            }
+            if (cb <= (SSR_INVALID_CBIAS + 0.005)) {
+                P[i] = 0.0;
+                trace(NULL, tl > 0 ? 2 : 4, "corr_meas: %s invalid cbias %s obscode=C%s ssrcode=C%s cbias=%7.3f\n", tstr,
+                      satid, code2obs(obs->code[i]), code2obs(ssrcode), cb);
+            }
+
+            if (pb != 0.0) {
+                L[i] += pb;
+                trace(NULL, tl > 0 ? 4 : 4, "corr_meas: %s pbias %s obscode=L%s ssrcode=L%s pbias=%7.3f\n", tstr, satid,
+                      code2obs(obs->code[i]), code2obs(ssrcode), pb);
+            } else if (sys != SYS_GLO) {
+                if (ssrcode == CODE_NONE || !nav->ssr_ch[0][obs->sat - 1].vpbias[ssrcode - 1]) {
+                    L[i] = 0.0;
+                    trace(NULL, tl > 0 ? 3 : 4,
+                          "corr_meas: %s pbias does not exist. %s obscode=C%s ssrcode=C%s pbias=%7.3f\n", tstr, satid,
+                          code2obs(obs->code[i]), code2obs(ssrcode), pb);
+                }
+            }
+            if (pb <= (SSR_INVALID_PBIAS + 0.00005)) {
+                L[i] = 0.0;
+                trace(NULL, tl > 0 ? 2 : 4, "corr_meas: %s invalid pbias %s obscode=L%s ssrcode=L%s pbias=%7.3f\n", tstr,
+                      satid, code2obs(obs->code[i]), code2obs(ssrcode), pb);
+            }
         }
     }
 
-    /* iono-free LC */
+    /* iono-free LC: pair = slot 0 + the 2nd frequency. #135: for IGS-product PPP,
+     * if the nominal slot-1 band is absent (F9P-class GAL E5b / BDS B2I), fall back
+     * to the first populated higher slot. No-op for other cases (i2 stays 1). */
+    if (corr == CORR_IGS && (freq[1] == 0.0 || P[1] == 0.0 || L[1] == 0.0)) {
+        int j;
+        for (j = 2; j < NFREQ; j++) {
+            if (freq[j] != 0.0 && P[j] != 0.0 && L[j] != 0.0) {
+                i2 = j;
+                ppp_note_autosig(sys, obs->code[i2]); /* notify user of the fallback */
+                break;
+            }
+        }
+    }
     *Lc = *Pc = 0.0;
-    if (freq[0] == 0.0 || freq[1] == 0.0) {
+    if (freq[0] == 0.0 || freq[i2] == 0.0) {
         return 0;
     }
-    C1 = SQR(freq[0]) / (SQR(freq[0]) - SQR(freq[1]));
-    C2 = -SQR(freq[1]) / (SQR(freq[0]) - SQR(freq[1]));
+    C1 = SQR(freq[0]) / (SQR(freq[0]) - SQR(freq[i2]));
+    C2 = -SQR(freq[i2]) / (SQR(freq[0]) - SQR(freq[i2]));
 
-    if (P[0] == 0.0 || P[1] == 0.0 || L[0] == 0.0 || L[1] == 0.0) {
+    if (P[0] == 0.0 || P[i2] == 0.0 || L[0] == 0.0 || L[i2] == 0.0) {
         trace(NULL, tl > 0 ? 2 : 4, "corr_meas: no sufficient obs data %s %s \n", tstr, satid);
         return 0;
     }
-    *Lc = C1 * L[0] + C2 * L[1];
-    *Pc = C1 * P[0] + C2 * P[1];
+    *Lc = C1 * L[0] + C2 * L[i2];
+    *Pc = C1 * P[0] + C2 * P[i2];
 
     return 1;
 }
