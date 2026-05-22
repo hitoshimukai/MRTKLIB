@@ -134,6 +134,7 @@ static double prange(const obsd_t* obs, const nav_t* nav, const prcopt_t* opt, d
     *var = 0.0;
 
     if (P1 == 0.0 || (opt->ionoopt == IONOOPT_IFLC && P2 == 0.0)) {
+        // printf("opt->ionoopt=%d P1=%.3f P2=%.3f\n", opt->ionoopt, P1, P2);
         return 0.0;
     }
 
@@ -153,6 +154,7 @@ static double prange(const obsd_t* obs, const nav_t* nav, const prcopt_t* opt, d
     if (opt->ionoopt == IONOOPT_IFLC) { /* dual-frequency */
 
         if (P1 == 0.0 || P2 == 0.0) {
+            // printf("P1 == 0.0 || P2 == 0.0\n");
             return 0.0;
         }
 
@@ -230,47 +232,67 @@ static int rescode(int iter, const obsd_t* obs, int n, const double* rs, const d
 
     ecef2pos(rr, pos);
 
+    // for(i = 0; i < n; i++){
+    //     char id[16];
+    //     satno2id(obs[i].sat, id);
+    //     printf("rescode  : %s sat=%s rs=%.3f %.3f %.3f dts=%.3e vare=%.3e svh=%d\n", time_str(obs[i].time, 3), id,
+    //           rs[i * 6], rs[1 + i * 6], rs[2 + i * 6], dts[i * 2], vare[i], svh[i]);
+    // }
+
     for (i = *ns = 0; i < n && i < MAXOBS; i++) {
+
+        // char id[16];
+        // satno2id(obs[i].sat, id);
+        // printf("rescode: %s %s \t", time_str(obs[i].time, 3), id);
+
         vsat[i] = 0;
         azel[i * 2] = azel[1 + i * 2] = resp[i] = 0.0;
         time = obs[i].time;
         sat = obs[i].sat;
         if (!(sys = satsys_bd2(sat, NULL))) {
+            // printf("1\n");
             continue;
         }
 
         /* reject duplicated observation data */
         if (i < n - 1 && i < MAXOBS - 1 && sat == obs[i + 1].sat) {
+            // printf("2\n");
             trace(NULL, 2, "duplicated obs data %s sat=%d\n", time_str(time, 3), sat);
             i++;
             continue;
         }
         /* excluded satellite? */
         if (satexclude(sat, vare[i], svh[i], opt)) {
+            // printf("3\n");
             continue;
         }
 
         /* geometric distance */
         if ((r = geodist(rs + i * 6, rr, e)) <= 0.0) {
+            // printf("4\n");
             continue;
         }
 
         if (iter > 0) {
             /* test elevation mask */
             if (satazel(pos, e, azel + i * 2) < opt->elmin) {
+                // printf("5\n");
                 continue;
             }
 
             /* test SNR mask */
             if (!snrmask(obs + i, azel + i * 2, opt)) {
+                // printf("6\n");
                 continue;
             }
 
             /* ionospheric correction */
             if (!ionocorr(time, nav, sat, pos, azel + i * 2, opt->ionoopt, &dion, &vion)) {
+                // printf("7\n");
                 continue;
             }
             if ((freq = sat2freq(sat, obs[i].code[0], nav)) == 0.0) {
+                // printf("8\n");
                 continue;
             }
             fact_ion = SQR(FREQ1 / freq);
@@ -279,11 +301,13 @@ static int rescode(int iter, const obsd_t* obs, int n, const double* rs, const d
 
             /* tropospheric correction */
             if (!tropcorr(time, nav, pos, azel + i * 2, opt->tropopt, &dtrp, &vtrp)) {
+                // printf("9\n");
                 continue;
             }
         }
         /* psendorange with code bias correction */
         if ((P = prange(obs + i, nav, opt, &vmeas)) == 0.0) {
+            // printf("10\n");
             continue;
         }
 
@@ -334,6 +358,13 @@ static int rescode(int iter, const obsd_t* obs, int n, const double* rs, const d
 
         trace(NULL, 4, "sat=%2d azel=%5.1f %4.1f res=%7.3f sig=%5.3f\n", obs[i].sat, azel[i * 2] * R2D,
               azel[1 + i * 2] * R2D, resp[i], sqrt(var[nv - 1]));
+        
+        // char id[16];
+        // satno2id(obs[i].sat, id);
+        // printf("rescode  : %s sat=%s azel=%.1f %.1f res=%.3f sig=%.3f vsat[%d]=%d\n", time_str(time, 3), id, azel[i * 2] * R2D,
+        //       azel[1 + i * 2] * R2D, resp[i], sqrt(var[nv - 1]), i, vsat[i]);
+        // 
+        // printf("OK\n");
     }
     /* constraint to avoid rank-deficient */
     for (i = 0; i < NT; i++) {
@@ -686,8 +717,21 @@ int pntpos(mrtk_ctx_t* ctx, const obsd_t* obs, int n, const nav_t* nav, const pr
         }
         opt_.tropopt = TROPOPT_SAAS;
     }
+
+    opt_.ionoopt = IONOOPT_BRDC;
+
     /* satellite positons, velocities and clocks */
     satposs(sol->time, obs, n, nav, opt_.sateph, rs, dts, var, svh);
+
+    // for(i=0;i<n;i++){
+    //     char id[16];
+    //     satno2id(obs[i].sat, id);
+    //     int sys = satsys(obs[i].sat, NULL);
+    //     if(sys == SYS_GLO){
+    //         printf("satposs  : %s sat=%s rs=%.3f %.3f %.3f dts=%.3e var=%.3e svh=%d\n", time_str(sol->time, 3), id,
+    //               rs[i * 6], rs[1 + i * 6], rs[2 + i * 6], dts[i * 2], var[i], svh[i]);
+    //     }
+    // }
 
     /* estimate receiver position with pseudorange */
     stat = estpos(obs, n, rs, dts, var, svh, nav, &opt_, sol, azel_, vsat, resp, msg);
@@ -716,6 +760,9 @@ int pntpos(mrtk_ctx_t* ctx, const obsd_t* obs, int n, const nav_t* nav, const pr
             ssat[obs[i].sat - 1].azel[0] = azel_[i * 2];
             ssat[obs[i].sat - 1].azel[1] = azel_[1 + i * 2];
             ssat[obs[i].sat - 1].snr[0] = obs[i].SNR[0];
+            // char id[16]; satno2id(obs[i].sat, id);
+            // int sys = satsys(obs[i].sat, NULL);
+            // printf("sat=%s azel=%.1f %.1f snr=%d res=%.3f, vsat[%d]=%d\n", id, azel_[i * 2] * R2D, azel_[1 + i * 2] * R2D, obs[i].SNR[0], resp[i], i, vsat[i]);
             if (!vsat[i]) {
                 continue;
             }

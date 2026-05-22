@@ -613,6 +613,7 @@ static geph_t* selgeph(gtime_t time, int sat, int iode, const nav_t* nav) {
         //printf("no glonass ephemeris  : %s sat=%2d iode=%2d\n", time_str(time, 0), sat, iode);
         return NULL;
     }
+    //printf("selgeph: select geph[%d] sat=%2d iode=%2d\n", j, nav->geph[j].sat, nav->geph[j].iode);
     return nav->geph + j;
 }
 /* select sbas ephememeris ---------------------------------------------------*/

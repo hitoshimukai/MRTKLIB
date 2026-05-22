@@ -533,9 +533,12 @@ static int corr_meas(const obsd_t* obs, const nav_t* nav, const double* azel, co
     }
 
     satno2id(obs->sat, satid);
+    // printf("%d sat=%s\t", obs->sat, satid);
     for (i = 0; i < opt->nf && i < NFREQ; i++) {
         L[i] = P[i] = cb = pb = 0.0;
         freq[i] = sat2freq(obs->sat, obs->code[i], nav);
+
+        // printf("satid=%s, freq[%d]=%.3f\n", satid, i, freq[i]);
 
         if (freq[i] == 0.0 || obs->L[i] == 0.0 || obs->P[i] == 0.0) {
             continue;
@@ -610,6 +613,7 @@ static int corr_meas(const obsd_t* obs, const nav_t* nav, const double* azel, co
     /* iono-free LC */
     *Lc = *Pc = 0.0;
     if (freq[0] == 0.0 || freq[1] == 0.0) {
+        // printf("NG1\n"); // => GLONASS NG
         return 0;
     }
     C1 = SQR(freq[0]) / (SQR(freq[0]) - SQR(freq[1]));
@@ -617,11 +621,13 @@ static int corr_meas(const obsd_t* obs, const nav_t* nav, const double* azel, co
 
     if (P[0] == 0.0 || P[1] == 0.0 || L[0] == 0.0 || L[1] == 0.0) {
         trace(NULL, tl > 0 ? 2 : 4, "corr_meas: no sufficient obs data %s %s \n", tstr, satid);
+        // printf("NG2\n");
         return 0;
     }
     *Lc = C1 * L[0] + C2 * L[1];
     *Pc = C1 * P[0] + C2 * P[1];
 
+    // printf("OK\n");
     return 1;
 }
 /* detect cycle slip by LLI --------------------------------------------------*/
@@ -991,10 +997,19 @@ static void udiono_ppp(rtk_t* rtk, const obsd_t* obs, int n, const nav_t* nav) {
     }
     for (i = 0; i < n; i++) {
         j = II(obs[i].sat, &rtk->opt);
+
+        char id[16];
+        satno2id(obs[i].sat, id);
+        printf("udiono_ppp: sat=%s, i=%d, rtk->x[%d] = %8.4f\n", id, i, j, rtk->x[j]);
+
         corr_meas(obs + i, nav, rtk->ssat[obs[i].sat - 1].azel, &rtk->opt, dantr, dants, 0.0, L, P, &Lc, &Pc, 0);
         freq1 = sat2freq(obs[i].sat, obs[i].code[0], nav);
         freq2 = sat2freq(obs[i].sat, obs[i].code[1], nav);
         slip = rtk->ssat[obs[i].sat - 1].slip;
+
+        printf("udiono_ppp: sat=%s, freq1=%.3f, freq2=%.3f, L[0]=%.3f, L[1]=%.3f, P[0]=%.3f, P[1]=%.3f\n", id, freq1, freq2, L[0], L[1], P[0], P[1]);
+        printf("obs[%d].sat=%d, obs[%d].code[0]=%d\r\n", i, obs[i].sat, i, obs[i].code[0]);
+        printf("obs[%d].sat=%d, obs[%d].code[1]=%d\r\n", i, obs[i].sat, i, obs[i].code[1]);
 
         if (rtk->x[j] == 0.0) {
             if (P[0] == 0.0 || P[1] == 0.0 || freq1 == 0.0 || freq2 == 0.0) {
@@ -1031,6 +1046,8 @@ static void udiono_ppp(rtk_t* rtk, const obsd_t* obs, int n, const nav_t* nav) {
             rtk->ssat[obs[i].sat - 1].ionc = ionc;
             rtk->x[j] += dion;
         }
+
+        printf("=> rtk->x[%d] = %8.4f\n", j, rtk->x[j]);
     }
 }
 /* temporal update of 3rd/4th-freqency-receiver-bias parameters --------------*/
@@ -1172,7 +1189,7 @@ static void udbias_ppp(rtk_t* rtk, const obsd_t* obs, int n, const nav_t* nav) {
 /* temporal update of states --------------------------------------------------*/
 static void udstate_ppp(rtk_t* rtk, const obsd_t* obs, int n, const nav_t* nav) {
     trace(NULL, 3, "udstate_ppp: n=%d\n", n);
-
+    //printf("udstate_ppp: n=%d\n", n);
     /* temporal update of position */
     udpos_ppp(rtk);
 
@@ -1192,6 +1209,7 @@ static void udstate_ppp(rtk_t* rtk, const obsd_t* obs, int n, const nav_t* nav) 
 
     /* temporal update of ionospheric parameters */
     if (rtk->opt.ionoopt == IONOOPT_EST) {
+        //printf("udstate_ppp: update ionospheric parameters\n");
         udiono_ppp(rtk, obs, n, nav);
     }
 }
@@ -1314,22 +1332,36 @@ static int ppp_res(int post, const obsd_t* obs, int n, const double* rs, const d
     }
     ecef2pos(rr, pos);
 
+//#define _A
+
     for (i = 0; i < n && i < MAXOBS; i++) {
         sat = obs[i].sat;
         satno2id(sat, satstr);
 
+#ifdef _A
+        printf("%s %s sat=%3d\t", str, satstr, sat);
+#endif
         if ((r = geodist(rs + i * 6, rr, e)) <= 0.0 || satazel(pos, e, azel + i * 2) < opt->elmin) {
             exc[i] = 1;
+#ifdef _A
+            printf("1\n");
+#endif
             continue;
         }
         if (!(sys = satsys(sat, NULL)) || !rtk->ssat[sat - 1].vs || satexclude(obs[i].sat, var_rs[i], svh[i], opt) ||
             exc[i]) {
             exc[i] = 1;
+#ifdef _A
+            printf("2\n");
+#endif
             continue;
         }
         /* tropospheric and ionospheric model */
         if (!model_trop(obs[i].time, pos, azel + i * 2, opt, x, dtdx, nav, &dtrp, &vart) ||
             !model_iono(obs[i].time, pos, azel + i * 2, opt, sat, x, nav, &dion, &vari)) {
+#ifdef _A
+                printf("3\n");
+#endif
             continue;
         }
         /* receiver antenna model */
@@ -1341,12 +1373,18 @@ static int ppp_res(int post, const obsd_t* obs, int n, const double* rs, const d
         /* phase windup model */
         if (!model_phw(rtk->sol.time, sat, nav->pcvs[sat - 1].type, opt->posopt[2] ? 2 : 0, rs + i * 6, rr,
                        &rtk->ssat[sat - 1].phw)) {
+#ifdef _A
+            printf("4\n");
+#endif
             continue;
         }
         /* corrected phase and code measurements */
         if (!corr_meas(obs + i, nav, azel + i * 2, &rtk->opt, dantr, dants, rtk->ssat[sat - 1].phw, L, P, &Lc, &Pc,
                        post)) {
-            continue;
+#ifdef _A
+            printf("5\n"); // => GLONASS NG
+#endif
+            // continue; // as it is disabled in MALIB
         }
         trace(NULL, post > 0 ? 3 : 4, "ppp_res: %s %s sat=%3d nf=%d\n", str, satstr, sat, NF(opt));
 
@@ -1355,16 +1393,28 @@ static int ppp_res(int post, const obsd_t* obs, int n, const double* rs, const d
             bias = ifb = 0.0;
             bias_std = ifb_std = dion_std = dtrp_std = 0.0;
 
+#ifdef _A
+            printf("opt->ionoopt=%d, j=%d\n", opt->ionoopt, j);
+#endif
             if (opt->ionoopt == IONOOPT_IFLC) {
                 if ((y = j % 2 == 0 ? Lc : Pc) == 0.0) {
+#ifdef _A
+                    printf("6\n");
+#endif
                     continue;
                 }
             } else {
                 if ((y = j % 2 == 0 ? L[j / 2] : P[j / 2]) == 0.0) {
+#ifdef _A
+                    printf("7\n"); // GLONASS NG
+#endif
                     continue;
                 }
 
                 if ((freq = sat2freq(sat, obs[i].code[j / 2], nav)) == 0.0) {
+#ifdef _A
+                    printf("8\n");
+#endif
                     continue;
                 }
                 C = SQR(FREQ1 / freq) * (j % 2 == 0 ? -1.0 : 1.0);
@@ -1419,6 +1469,9 @@ static int ppp_res(int post, const obsd_t* obs, int n, const double* rs, const d
             }
             if (opt->ionoopt == IONOOPT_EST) {
                 if (rtk->x[II(sat, opt)] == 0.0) {
+#ifdef _A
+                    printf("9\n"); // GLONASS NG
+#endif
                     continue;
                 }
                 dion_std = SQRT(cov[II(sat, opt) + II(sat, opt) * rtk->nx]);
@@ -1426,6 +1479,9 @@ static int ppp_res(int post, const obsd_t* obs, int n, const double* rs, const d
             }
             if (j % 2 == 0) { /* phase bias */
                 if ((bias = x[IB(sat, j / 2, opt)]) == 0.0) {
+#ifdef _A
+                    printf("10\n");
+#endif
                     continue;
                 }
                 bias_std = SQRT(cov[IB(obs[i].sat, j / 2, opt) + IB(obs[i].sat, j / 2, opt) * rtk->nx]);
@@ -1461,6 +1517,9 @@ static int ppp_res(int post, const obsd_t* obs, int n, const double* rs, const d
                       j % 2 ? "C" : "L", code2obs(obs[i].code[j / 2]), v[nv], azel[1 + i * 2] * R2D);
                 exc[i] = 1;
                 rtk->ssat[sat - 1].rejc[j % 2]++;
+#ifdef _A
+                printf("11\n");
+#endif
                 continue;
             }
             /* record large post-fit residuals */
@@ -1472,6 +1531,12 @@ static int ppp_res(int post, const obsd_t* obs, int n, const double* rs, const d
             }
             if (j % 2 == 0) {
                 rtk->ssat[sat - 1].vsat[j / 2] = 1;
+#ifdef _A
+                // char id[16];
+                // satno2id(sat, id);
+                // printf("ppp_res: %s %s sat=%3d %s%s res=%9.4f, vsat=%d\n", str, id, sat, j % 2 ? "C" : "L", code2obs(obs[i].code[j / 2]), v[nv], rtk->ssat[sat - 1].vsat[j / 2]);
+                printf("OK\n");
+#endif
             }
             if (j % 2 == 0) {
                 resc_rms += (v[nv] * v[nv]);

@@ -1375,6 +1375,8 @@ static int ddres(rtk_t* rtk, const nav_t* nav, double* x, double* pbslip, const 
 
     trace(NULL, 3, "ddres   :niter=%2d nx=%d n=%d\n", niter, rtk->nx, n);
 
+    // printf("A\n");
+
     im = mat(n, 1);
     tropu = mat(n, 1);
     dtdxu = mat(n, 3);

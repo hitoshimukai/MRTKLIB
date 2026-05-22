@@ -1273,6 +1273,8 @@ static int ddres(rtk_t* rtk, const nav_t* nav, const obsd_t* obs, double dt, con
 
     trace(NULL, 3, "ddres   : dt=%.1f nx=%d ns=%d\n", dt, rtk->nx, ns);
 
+    // printf("B\n");
+
     bl = baseline(x, rtk->rb, dr);
     ecef2pos(x, posu);
     ecef2pos(rtk->rb, posr);
@@ -2649,6 +2651,8 @@ extern int rtkpos(mrtk_ctx_t* ctx, rtk_t* rtk, const obsd_t* obs, int n, nav_t* 
     char msg[128] = "";
 
     trace(ctx, 3, "rtkpos  : time=%s n=%d\n", time_str(obs[0].time, 3), n);
+
+    // printf("rtkpos  : time=%s n=%d\n", time_str(obs[0].time, 3), n);
 
     /* set base station position */
     if (opt->refpos <= POSOPT_RINEX && opt->mode != PMODE_SINGLE && opt->mode != PMODE_MOVEB) {
