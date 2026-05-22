@@ -998,18 +998,18 @@ static void udiono_ppp(rtk_t* rtk, const obsd_t* obs, int n, const nav_t* nav) {
     for (i = 0; i < n; i++) {
         j = II(obs[i].sat, &rtk->opt);
 
-        char id[16];
-        satno2id(obs[i].sat, id);
-        printf("udiono_ppp: sat=%s, i=%d, rtk->x[%d] = %8.4f\n", id, i, j, rtk->x[j]);
+        // char id[16];
+        // satno2id(obs[i].sat, id);
+        // printf("udiono_ppp: sat=%s, i=%d, rtk->x[%d] = %8.4f\n", id, i, j, rtk->x[j]);
 
         corr_meas(obs + i, nav, rtk->ssat[obs[i].sat - 1].azel, &rtk->opt, dantr, dants, 0.0, L, P, &Lc, &Pc, 0);
         freq1 = sat2freq(obs[i].sat, obs[i].code[0], nav);
         freq2 = sat2freq(obs[i].sat, obs[i].code[1], nav);
         slip = rtk->ssat[obs[i].sat - 1].slip;
 
-        printf("udiono_ppp: sat=%s, freq1=%.3f, freq2=%.3f, L[0]=%.3f, L[1]=%.3f, P[0]=%.3f, P[1]=%.3f\n", id, freq1, freq2, L[0], L[1], P[0], P[1]);
-        printf("obs[%d].sat=%d, obs[%d].code[0]=%d\r\n", i, obs[i].sat, i, obs[i].code[0]);
-        printf("obs[%d].sat=%d, obs[%d].code[1]=%d\r\n", i, obs[i].sat, i, obs[i].code[1]);
+        // printf("udiono_ppp: sat=%s, freq1=%.3f, freq2=%.3f, L[0]=%.3f, L[1]=%.3f, P[0]=%.3f, P[1]=%.3f\n", id, freq1, freq2, L[0], L[1], P[0], P[1]);
+        // printf("obs[%d].sat=%d, obs[%d].code[0]=%d\r\n", i, obs[i].sat, i, obs[i].code[0]);
+        // printf("obs[%d].sat=%d, obs[%d].code[1]=%d\r\n", i, obs[i].sat, i, obs[i].code[1]);
 
         if (rtk->x[j] == 0.0) {
             if (P[0] == 0.0 || P[1] == 0.0 || freq1 == 0.0 || freq2 == 0.0) {
@@ -1047,7 +1047,7 @@ static void udiono_ppp(rtk_t* rtk, const obsd_t* obs, int n, const nav_t* nav) {
             rtk->x[j] += dion;
         }
 
-        printf("=> rtk->x[%d] = %8.4f\n", j, rtk->x[j]);
+        // printf("=> rtk->x[%d] = %8.4f\n", j, rtk->x[j]);
     }
 }
 /* temporal update of 3rd/4th-freqency-receiver-bias parameters --------------*/

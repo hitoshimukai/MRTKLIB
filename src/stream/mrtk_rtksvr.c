@@ -820,14 +820,14 @@ static void* rtksvrthread(void* arg) {
             for (j = 0; j < svr->obs[1][0].n && obs.n < MAXOBS * 2; j++) {
                 obs.data[obs.n++] = svr->obs[1][0].data[j];
             }
-            printf("NFREQ=%d, NEXOBS=%d\n", NFREQ, NEXOBS);
+            // printf("NFREQ=%d, NEXOBS=%d\n", NFREQ, NEXOBS);
             for(j = 0; j < obs.n; j++){
-                char id[16];
-                satno2id(obs.data[j].sat, id);
+                // char id[16];
+                // satno2id(obs.data[j].sat, id);
                 int sys = satsys(obs.data[j].sat, NULL);
-                for(int k = 0; k < NFREQ+NEXOBS; k++){
-                    printf("k=%d, SNR=%d, LLI=%d, code=%d, L=%f, P=%f, D=%f\n", k, obs.data[j].SNR[k], obs.data[j].LLI[k], obs.data[j].code[k], obs.data[j].L[k], obs.data[j].P[k], obs.data[j].D[k]);
-                }
+                // for(int k = 0; k < NFREQ+NEXOBS; k++){
+                //     printf("k=%d, SNR=%d, LLI=%d, code=%d, L=%f, P=%f, D=%f\n", k, obs.data[j].SNR[k], obs.data[j].LLI[k], obs.data[j].code[k], obs.data[j].L[k], obs.data[j].P[k], obs.data[j].D[k]);
+                // }
                 if(sys == SYS_GLO){
                     obs.data[j].SNR[1] = obs.data[j].SNR[6];
                     obs.data[j].LLI[1] = obs.data[j].LLI[6];
@@ -836,7 +836,7 @@ static void* rtksvrthread(void* arg) {
                     obs.data[j].P[1] = obs.data[j].P[6];
                     obs.data[j].D[1] = obs.data[j].D[6];
                 }
-                printf("obs: time=%s sat=%s code=%d,%d,%d\n", time_str(obs.data[j].time, 3), id, obs.data[j].code[0], obs.data[j].code[1], obs.data[j].code[2]);
+                // printf("obs: time=%s sat=%s code=%d,%d,%d\n", time_str(obs.data[j].time, 3), id, obs.data[j].code[0], obs.data[j].code[1], obs.data[j].code[2]);
             }
             /* rtk positioning */
             rtksvrlock(svr);
