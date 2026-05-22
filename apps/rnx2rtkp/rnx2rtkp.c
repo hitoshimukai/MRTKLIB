@@ -182,7 +182,6 @@ int mrtk_post(int argc, char** argv) {
                 return -1;
             }
             getsysopts(&prcopt, &solopt, &filopt);
-            apply_pppsig(prcopt.pppsig);
         }
     }
     for (i = 1, n = 0; i < argc; i++) {
@@ -312,6 +311,15 @@ int mrtk_post(int argc, char** argv) {
             mrtk_ctx_destroy(ctx);
             return -2;
         }
+    }
+    /* #135: the legacy pppsig signal selection reshapes the obsdef tables and
+     * destructively drops bands the receiver does not nominally provide. For
+     * conventional IGS-product PPP, skip it so the receiver's actual 2nd band
+     * (e.g. GAL E5b / BDS B2I on u-blox F9P) survives and the iono-free pair is
+     * chosen from the available observations (see prange/corr_meas). MADOCA/CLAS
+     * and all other correction sources keep the legacy behaviour unchanged. */
+    if (prcopt.correction != CORR_IGS) {
+        apply_pppsig(prcopt.pppsig);
     }
     ret = postpos(ctx, ts, te, tint, 0.0, &prcopt, &solopt, &filopt, infile, n, outfile, "", "");
 

@@ -520,12 +520,37 @@ static double mwmeas(const obsd_t* obs, const nav_t* nav, int f) {
     return (obs->L[0] - obs->L[f]) * CLIGHT / (freq1 - freq2) -
            (freq1 * obs->P[0] + freq2 * obs->P[f]) / (freq1 + freq2);
 }
+/* notify the user once per system when IGS-PPP auto-selects a non-nominal 2nd band
+ * for the iono-free combination (#135). trace() is a no-op in release builds, so the
+ * primary channel is stderr. Per-process state is adequate for the post path. */
+static void ppp_note_autosig(int sys, uint8_t code) {
+    static int reported = 0; /* bitmask of SYS_* already notified */
+    const char* name;
+
+    if (reported & sys) {
+        return;
+    }
+    reported |= sys;
+
+    switch (sys) {
+        case SYS_GPS: name = "GPS"; break;
+        case SYS_GLO: name = "GLO"; break;
+        case SYS_GAL: name = "GAL"; break;
+        case SYS_QZS: name = "QZS"; break;
+        case SYS_CMP: name = "BDS"; break;
+        case SYS_IRN: name = "IRN"; break;
+        default:      name = "???"; break;
+    }
+    fprintf(stderr, "note: auto signal: %s iono-free 2nd freq = L%s (nominal band absent in data)\n", name,
+            code2obs(code));
+    trace(NULL, 1, "corr_meas: auto IFLC 2nd band sys=%s code=L%s\n", name, code2obs(code));
+}
 /* antenna corrected measurements --------------------------------------------*/
 static int corr_meas(const obsd_t* obs, const nav_t* nav, const double* azel, const prcopt_t* opt, const double* dantr,
                      const double* dants, double phw, double* L, double* P, double* Lc, double* Pc, int tl) {
     char satid[8], *tstr = time_str(obs->time, 3);
     double freq[NFREQ] = {0}, C1, C2, cb = 0.0, pb = 0.0;
-    int i, sys = satsys(obs->sat, NULL), ssrcode = CODE_NONE, ant_idx;
+    int i, i2 = 1, nfread, sys = satsys(obs->sat, NULL), ssrcode = CODE_NONE, ant_idx;
     int ssr_bias = 0;
     int corr = opt->correction; /* correction source (CORR_???); selects the bias path below */
 
@@ -534,7 +559,12 @@ static int corr_meas(const obsd_t* obs, const nav_t* nav, const double* azel, co
     }
 
     satno2id(obs->sat, satid);
-    for (i = 0; i < opt->nf && i < NFREQ; i++) {
+    /* #135: for IGS-product PPP, prepare all main frequency slots (not just nf) so a
+     * receiver that delivers its 2nd band in slot 2 (e.g. GAL E5b / BDS B2I, with
+     * slot-1 E5a/B3I absent) still yields a usable second observation for the
+     * iono-free pair below. Other correction sources keep the nf-bounded loop. */
+    nfread = (corr == CORR_IGS && NFREQ > opt->nf) ? NFREQ : opt->nf;
+    for (i = 0; i < nfread && i < NFREQ; i++) {
         L[i] = P[i] = cb = pb = 0.0;
         freq[i] = sat2freq(obs->sat, obs->code[i], nav);
 
@@ -630,20 +660,32 @@ static int corr_meas(const obsd_t* obs, const nav_t* nav, const double* azel, co
         }
     }
 
-    /* iono-free LC */
+    /* iono-free LC: pair = slot 0 + the 2nd frequency. #135: for IGS-product PPP,
+     * if the nominal slot-1 band is absent (F9P-class GAL E5b / BDS B2I), fall back
+     * to the first populated higher slot. No-op for other cases (i2 stays 1). */
+    if (corr == CORR_IGS && (freq[1] == 0.0 || P[1] == 0.0 || L[1] == 0.0)) {
+        int j;
+        for (j = 2; j < NFREQ; j++) {
+            if (freq[j] != 0.0 && P[j] != 0.0 && L[j] != 0.0) {
+                i2 = j;
+                ppp_note_autosig(sys, obs->code[i2]); /* notify user of the fallback */
+                break;
+            }
+        }
+    }
     *Lc = *Pc = 0.0;
-    if (freq[0] == 0.0 || freq[1] == 0.0) {
+    if (freq[0] == 0.0 || freq[i2] == 0.0) {
         return 0;
     }
-    C1 = SQR(freq[0]) / (SQR(freq[0]) - SQR(freq[1]));
-    C2 = -SQR(freq[1]) / (SQR(freq[0]) - SQR(freq[1]));
+    C1 = SQR(freq[0]) / (SQR(freq[0]) - SQR(freq[i2]));
+    C2 = -SQR(freq[i2]) / (SQR(freq[0]) - SQR(freq[i2]));
 
-    if (P[0] == 0.0 || P[1] == 0.0 || L[0] == 0.0 || L[1] == 0.0) {
+    if (P[0] == 0.0 || P[i2] == 0.0 || L[0] == 0.0 || L[i2] == 0.0) {
         trace(NULL, tl > 0 ? 2 : 4, "corr_meas: no sufficient obs data %s %s \n", tstr, satid);
         return 0;
     }
-    *Lc = C1 * L[0] + C2 * L[1];
-    *Pc = C1 * P[0] + C2 * P[1];
+    *Lc = C1 * L[0] + C2 * L[i2];
+    *Pc = C1 * P[0] + C2 * P[i2];
 
     return 1;
 }
