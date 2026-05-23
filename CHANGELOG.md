@@ -5,6 +5,51 @@ All notable changes to MRTKLIB are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.6.8] - 2026-05-23
+
+**Feature** — real-time **IGS-RTS float PPP** via the `correction = "igs-rts"`
+axis (RTCM-SSR / IGS-SSR), and the fix that routes it through the correct
+measurement model.
+
+### Added
+
+- **`correction = "igs-rts"`** (#138) — conventional float PPP driven by a
+  real-time RTCM-SSR / IGS-SSR (MT4076) correction stream (IGS01/03, CNES
+  `CLK9x`, BKG, etc.). The decode-and-apply pipeline was already inherited from
+  the MADOCA-via-RTCM integration; this unlocks the axis. `resolve_correction()`
+  removes `igs-rts` from the reserved-reject (`gal-has` / `bds-b2b` stay
+  reserved), adds it to the PPP validity matrix, and requires
+  `satellite_ephemeris = "brdc+ssrapc"` / `"brdc+ssrcom"`. It is **not**
+  auto-inferred (it shares `brdc+ssrapc` with `qzs-madoca`), so it must be set
+  explicitly.
+- **`conf/igs/rnx2rtkp_igsrts.toml`** sample config.
+- **`igsrts` regression test** — AIRA00JPN (Aira, Japan, IGS) GPS+GAL, IGS
+  combined RTCM-SSR + broadcast eph, validated against an IGS final SINEX
+  coordinate (3D 1σ ≈ 0.18 m float; cross-checked against upstream RTKLIB 2.4.3
+  `rnx2rtkp` on identical inputs).
+- **`docs/releases/release-notes-v0.6.7.md`** — backfilled (was missing).
+
+### Changed
+
+- **`corr_meas()`** routes `igs-rts` through the **RTKLIB float-PPP measurement
+  model** (shared with `correction = igs`), not the MADOCA SSR-bias path. The
+  satellite orbit/clock still come from `satpos_ssr` (`EPHOPT_SSRAPC`); only the
+  receiver measurement model changes. The per-signal RTCM-SSR code/phase bias is
+  not applied — RTCM-SSR uses a different bias convention than MADOCA-CSSR (the
+  code bias has the opposite sign), and applying it via the MADOCA path biases
+  the solution by metres. The MADOCA / `gal-has` / `bds-b2b` SSR path is
+  unchanged (bit-identical).
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/pos/mrtk_opt.c` | unlock `CORR_IGS_RTS` in `resolve_correction()` (validity matrix + sateph guard) |
+| `src/pos/mrtk_ppp.c` | route `igs-rts` through the RTKLIB float-PPP measurement model in `corr_meas` |
+| `conf/igs/rnx2rtkp_igsrts.toml`, `conf/igs/rnx2rtkp_igsrts_test.toml` | sample + regression-test configs |
+| `tests/data/igs/igsrts_testdata.tar.gz`, `CMakeLists.txt` | `igsrts` regression test |
+| `docs/design/configuration.md`, `docs/reference/config-options.md` | `igs-rts` documented as implemented |
+
 ## [v0.6.7] - 2026-05-21
 
 **Feature** — conventional **IGS precise-products float PPP** via a new

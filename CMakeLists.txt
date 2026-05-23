@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(MRTKLIB VERSION 0.6.7 LANGUAGES C)
+project(MRTKLIB VERSION 0.6.8 LANGUAGES C)
 
 # ── Version header generation ─────────────────────────────────────────────────
 set(MRTKLIB_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
@@ -1274,4 +1274,70 @@ set_tests_properties(igs_iflc_ppp_check PROPERTIES
     DEPENDS           igs_iflc_ppp
     FIXTURES_REQUIRED igs_iflc_data
     LABELS            "absolute;igs;ppp;iflc"
+)
+
+# -----------------------------------------------------------------------------
+# IGS-RTS float-PPP regression (#138): correction = "igs-rts"
+# Source: AIRA00JPN (Aira, Japan, IGS) GPS+GAL, captured live 2026-05-22 from
+# the CDDIS NTRIP caster: rover obs (AIRA MSM7), IGS combined RTCM-SSR
+# (SSRA02IGS0, code-bias-only) and BKG broadcast eph (BCEP00BKG0); obs at 30 s.
+# Reference coordinate: IGS final weekly SINEX (excerpt igsrts_aira.snx, AIRA
+# estimate at 2026-05-06, ~2 weeks from the obs epoch), propagated to 2026-05-22.
+# Receiver antenna TRM59800.00 SCIS PCV applied (igs20_aira.atx, the AIRA block
+# from igs20.atx) — the real-time MSM RINEX carries no antenna name so it is set
+# in the config. Result: 3D 1σ ~0.18 m / 95% ~0.33 m float — the expected
+# real-time IGS-RTS float-PPP accuracy. Cross-checked against upstream RTKLIB
+# 2.4.3 rnx2rtkp on the identical inputs (agreement to the LAPACK-vs-LU level).
+# Test data archive: tests/data/igs/igsrts_testdata.tar.gz
+# -----------------------------------------------------------------------------
+add_test(NAME igsrts_setup
+    COMMAND bash -c "tar xzf ${_IGSDATA}/igsrts_testdata.tar.gz -C ${_IGSDATA}"
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(igsrts_setup PROPERTIES
+    FIXTURES_SETUP  igsrts_data
+    TIMEOUT         30
+    LABELS          "regression;igs;ppp;igsrts"
+)
+
+add_test(NAME igsrts_cleanup
+    COMMAND bash -c "rm -f \
+        ${_IGSDATA}/igsrts_aira.obs \
+        ${_IGSDATA}/igsrts_brdc.nav \
+        ${_IGSDATA}/igsrts_ssr.rtcm3 \
+        ${_IGSDATA}/igsrts_aira.snx \
+        ${_IGSDATA}/igs20_aira.atx"
+)
+set_tests_properties(igsrts_cleanup PROPERTIES
+    FIXTURES_CLEANUP igsrts_data
+    LABELS           "regression;igs;ppp;igsrts"
+)
+
+add_test(NAME igsrts_ppp
+    COMMAND $<TARGET_FILE:mrtk> post
+        -k ${CMAKE_SOURCE_DIR}/conf/igs/rnx2rtkp_igsrts_test.toml
+        -o ${CMAKE_BINARY_DIR}/out_igsrts_ppp.pos
+        ${_IGSDATA}/igsrts_aira.obs
+        ${_IGSDATA}/igsrts_brdc.nav
+        ${_IGSDATA}/igsrts_ssr.rtcm3
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(igsrts_ppp PROPERTIES
+    FIXTURES_REQUIRED igsrts_data
+    TIMEOUT           180
+    LABELS            "regression;igs;ppp;igsrts"
+)
+
+add_test(NAME igsrts_ppp_check
+    COMMAND ${Python3_EXECUTABLE} ${_COMPARE_POS_ABS}
+        --sinex ${_IGSDATA}/igsrts_aira.snx --station AIRA --epoch 2026/05/22
+        --tolerance 0.5
+        --skip-epochs 20
+        ${CMAKE_BINARY_DIR}/out_igsrts_ppp.pos
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(igsrts_ppp_check PROPERTIES
+    DEPENDS           igsrts_ppp
+    FIXTURES_REQUIRED igsrts_data
+    LABELS            "absolute;igs;ppp;igsrts"
 )
