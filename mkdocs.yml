@@ -95,6 +95,7 @@ nav:
     - Configuration (TOML): guide/configuration.md
     - "Quick Start: CLAS PPP-RTK": guide/quickstart-clas.md
     - "Quick Start: MADOCA-PPP": guide/quickstart-madoca-ppp.md
+    - "Quick Start: IGS-RTS PPP": guide/quickstart-igs-rts.md
     - NTRIP Streams: guide/ntrip.md
   - Hardware:
     - CLAS Positioning with mosaic-G5: hardware/cssr2rtcm3-mosaic-g5.md
