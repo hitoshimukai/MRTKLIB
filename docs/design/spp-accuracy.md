@@ -53,22 +53,35 @@ weighting. This is why the delivery order below leads with weighting, not EKF.
 
 **In scope**
 
+A **robust WLS front-end** that stays inside the existing snapshot estimator
+(no architecture change):
+
 - C-N0 (Sigma-ε) measurement weighting added to `varerr()`.
-- An optional, gated SPP extended Kalman filter (EKF) for `PMODE_SINGLE` that
-  carries position / velocity / acceleration / clock / clock-drift /
-  inter-system bias states across epochs.
-- Doppler and TDCP measurement updates fused into that EKF.
-- Common-mode (all-satellite) receiver clock-jump correction.
-- A `single` mode added to the PPC-Dataset benchmark for before/after metrics.
+- IGG-III equivalent-weight robust re-weighting in the `estpos()` iteration.
+- RAIM-FDE improvement (multi-fault, better exclusion thresholds).
+- Doppler-based quality control (predicted-vs-measured consistency gating).
 
-**Out of scope** (separate issues / later)
+Then an **auxiliary TDCP relative-displacement constraint** (still
+snapshot-coupled), and only after that an **optional, gated SPP-EKF**:
 
-- IGG-III full robust estimator beyond the C-N0 weighting first step (the EKF
-  measurement-update residual hook is designed so it can be added later — see
-  [§5.6](#56-robust-estimation-hook)).
-- ML/NLOS classification (issue #116 priority 4).
-- Factor-graph optimization (priority 3) — architecturally a batch/sliding-window
-  optimizer, which does not fit the streaming rtkrcv loop (see [§7](#7-real-time-considerations)).
+- TDCP used to tighten the velocity solve and to gate between-epoch jumps.
+- Common-mode (all-satellite) receiver clock-jump correction + a logging /
+  reset strategy (the prerequisite for a stable filter).
+- An EKF for `PMODE_SINGLE` carrying position / velocity / acceleration /
+  clock / clock-drift / inter-system bias states, with Doppler and TDCP fused.
+
+Tooling:
+
+- A `single` mode added to the PPC-Dataset benchmark for before/after metrics
+  (P0, shipped).
+
+**Out of scope** — external / post-processing / optional extensions, not the
+SPP core:
+
+- ML / NLOS classification (issue #116 priority 4).
+- Factor-graph optimization (priority 3) — a batch / sliding-window optimizer
+  that does not fit the streaming rtkrcv loop (see [§7](#7-real-time-considerations)).
+- 3D-mapping-aided (3DMA) GNSS — requires an external building model.
 
 ## 4. Delivery order and rationale
 
@@ -76,27 +89,37 @@ A literature survey of SPP accuracy techniques (maintainer-local research
 report; its findings are distilled in §2–4 and the references in §9, and the
 work is tracked under [#116](https://github.com/h-shiono/MRTKLIB/issues/116))
 ranks **TDCP-EKF first** for *kinematic impact* and *RTKLIB affinity*. That is
-correct as the single highest-ceiling lever and is the architecturally correct
-choice for a real-time library. But the **best risk-adjusted first step** is the
-lightweight half of priority 2, for three reasons:
+the single highest-ceiling lever and the architecturally correct estimator for a
+real-time library — but it is not the right *first* step.
 
-1. C-N0 weighting is the only cheap lever that moves **bias**, including for the
-   static case the maintainer explicitly wants improved.
-2. It is ~tens of lines confined to `varerr()`, lowest regression risk.
-3. The TDCP-EKF alone does **not** improve static bias; shipping it first would
-   under-deliver against the "competitive with commercial receivers" goal.
+Two pieces of evidence reorder the work toward a **robust WLS front-end first,
+EKF last**:
 
-So the order is **weighting first, then EKF**:
+1. **The P0 baseline is outlier-dominated** ([§4.1](#41-p0-baseline-measured-2026-05-24)):
+   in several runs `RMS 2D > p95`, so a handful of blunders dominate the error.
+   The direct fix for that is robust weighting + fault exclusion, not a filter.
+2. An independent design review (Codex) reached the same conclusion: land the
+   improvements that drop into the existing WLS without breaking it
+   (**SNR/C-N0 weighting, robust WLS, RAIM-FDE improvement, Doppler quality
+   control**) first; introduce **TDCP as an auxiliary relative-displacement
+   constraint** next; and only **EKF-ify after sufficient logging and a reset
+   strategy exist**. FGO / ML / 3DMA are external/optional, not the core.
 
-| Step | Content | Primary gain | Risk |
-|------|---------|--------------|------|
-| **P0** | Add `single` mode to PPC benchmark; baseline vs F9P / mosaic-X5 | measurement harness | none |
-| **P1** | C-N0 (Sigma-ε) weighting in `varerr()`, TOML-gated | **bias** (static + kinematic) | low |
-| **P2** | SPP-EKF skeleton (position + clock; pseudorange + Doppler), gated | precision; kills snapshot jumps | low (gated) |
-| **P3** | Add velocity/accel dynamics states (`dynamics` 1/2) | kinematic track smoothing | low |
-| **P4** | Common-mode clock-jump correction | low-cost receiver continuity | medium (prereq for P5) |
-| **P5** | TDCP measurement + cycle-slip gating | **mm/s velocity constraint** | medium |
-| **P6** | (optional) IGG-III robust hook in EKF update | outlier robustness / bias | low |
+This also keeps risk monotonic: P1–P3 are confined to the snapshot WLS (no
+state carried across epochs, so RTK/PPP seeding is unaffected in structure), and
+the architecture change (the EKF) is deferred until the front-end is robust.
+C-N0 weighting is additionally the cheap lever that moves **static bias**, which
+the maintainer explicitly wants improved and which TDCP/EKF cannot.
+
+| Step | Content | Architecture | Primary gain | Risk |
+|------|---------|--------------|--------------|------|
+| **P0** | `single` mode in PPC benchmark + baseline *(shipped)* | tooling | measurement harness | none |
+| **P1** | C-N0 (Sigma-ε) weighting in `varerr()`, TOML-gated | WLS | **bias** (static + kinematic) | low |
+| **P2** | IGG-III equivalent-weight robust re-weighting in `estpos()` | WLS | **outlier suppression** (dominant error) | low |
+| **P3** | RAIM-FDE improvement + Doppler-based quality control | WLS | gross-blunder exclusion | low |
+| **P4** | TDCP auxiliary constraint: velocity tightening + between-epoch consistency / slip gating | WLS + light coupling | precision; jump rejection | medium |
+| **P5** | Common-mode clock-jump correction + logging / reset strategy | infra | low-cost-receiver continuity; EKF prerequisite | medium |
+| **P6** | SPP-EKF: coupled pos/vel/accel/clock + Doppler/TDCP, dynamics, reuse `rtk_t` | **EKF (new)** | kinematic smoothing / precision | medium |
 
 Each step ships as an independent, reviewable commit, must pass the full
 `ctest --output-on-failure`, and records numerical deltas (CLAUDE.md §7.2 —
@@ -133,8 +156,9 @@ python3 scripts/benchmark/run_benchmark.py \
 - **RMS is outlier-dominated.** In several runs `RMS 2D > p95` (run1: 27.9 m vs
   17.8 m; tokyo_run3: 36.0 m vs 14.7 m) — a handful of large blunders beyond the
   95th percentile dominate the RMS. This is exactly the snapshot-WLS
-  position-jump vulnerability that temporal continuity (EKF, P2+) and robust
-  down-weighting (P1/P6) target. Expect the biggest headline improvement here.
+  position-jump vulnerability that robust down-weighting + fault exclusion
+  (P2/P3) and temporal continuity (EKF, P6) target. Expect the biggest headline
+  improvement from the robust WLS front-end.
 - **Median accuracy is 3–12 m (p68).** Typical urban-canyon single-frequency
   SPP. Tightening this is the precision job of the EKF + TDCP.
 - **~18–27 satellites tracked.** Ample redundancy for robust estimators and
@@ -206,7 +230,7 @@ rows:
 - **Doppler** rows constrain velocity / clock-drift, lifted from
   [`resdop()`](../../src/pos/mrtk_spp.c) (existing, validated logic).
 
-### 5.4 TDCP measurement update (P5)
+### 5.4 TDCP measurement update (P4 auxiliary, fused in the EKF at P6)
 
 For each satellite continuously locked across `t-1 → t`, form
 `Δφ = φ(t) − φ(t-1)`, predict the geometric increment from satellite motion and
@@ -216,7 +240,7 @@ which the SPP path must begin to populate (today only RTK/PPP do). TDCP delivers
 the mm/s-class velocity constraint (van Graas & Soloviev 2004; Freda et al.
 2015 — [§9](#9-references)).
 
-### 5.5 Common-mode clock-jump correction (P4)
+### 5.5 Common-mode clock-jump correction (P5)
 
 Low-cost receivers steer their clock, producing simultaneous millisecond jumps
 on every satellite's carrier phase. `rescode()` already processes all visible
@@ -227,14 +251,18 @@ differencing — preventing the jump from being mistaken for per-satellite cycle
 slips (Everett et al. 2022 / demo5 — [§9](#9-references)). It is a prerequisite
 for stable TDCP on low-cost hardware.
 
-### 5.6 Robust-estimation hook
+### 5.6 Robust estimation (P2, carried into the EKF at P6)
 
-The EKF measurement-update step exposes a residual-evaluation point so that an
-IGG-III equivalent-weight (Yang et al. 2001) down-weighting pass can be added in
-P6 without re-architecting — the same hybrid TDCP-EKF + robust-regression
+An IGG-III equivalent-weight (Yang et al. 2001) re-weighting pass is added to the
+`estpos()` WLS iteration first (P2): each measurement's weight is scaled by a
+three-segment function of its standardized residual, smoothly down-weighting
+medium outliers and rejecting gross ones — directly attacking the
+outlier-dominated baseline ([§4.1](#41-p0-baseline-measured-2026-05-24)) without
+any architecture change. The same residual-evaluation point is then exposed in
+the EKF measurement update (P6), giving the hybrid robust-WLS + TDCP-EKF
 structure validated in Remote Sensing 12(16):2550 (2020).
 
-### 5.7 Cycle-slip gating (P5)
+### 5.7 Cycle-slip gating (P4 for TDCP auxiliary, reused at P6)
 
 TDCP breaks on a single undetected slip, so detection is layered:
 
@@ -247,7 +275,7 @@ TDCP breaks on a single undetected slip, so detection is layered:
 A satellite flagged as slipped drops only its TDCP row for that epoch; its
 pseudorange row is still used. The existing `detslp_*` helpers are `rtk_t`-bound
 file statics in [`mrtk_ppp.c`](../../src/pos/mrtk_ppp.c); sharing them with SPP
-needs a small refactor to a common helper, designed at P5.
+needs a small refactor to a common helper, designed at P4.
 
 ## 6. The Doppler-absence invariant
 
@@ -331,7 +359,7 @@ primary, ○ corroborating / applied.
   12(16):2550 (2020).
   DOI [10.3390/rs12162550](https://doi.org/10.3390/rs12162550).
   State-augmented EKF combining **TDCP + robust regression** — the template for
-  the P5+P6 hybrid in this design.
+  the robust-WLS (P2) + TDCP-EKF (P6) hybrid in this design.
 - ○ "A Doppler enhanced TDCP algorithm based on terrain adaptive and robust
   Kalman filter using a stand-alone receiver." *The Journal of Navigation*
   (Cambridge University Press).
@@ -351,7 +379,7 @@ primary, ○ corroborating / applied.
   *Proc. 3rd Int. Geodetic Symp. on Satellite Doppler Positioning*, vol. 2,
   pp. 1213–1231.
 
-**Robust estimation (IGG-III; the lever for static bias — priority 2 / P6)**
+**Robust estimation (IGG-III; the lever for static bias — priority 2 / P2)**
 
 - ◎ Yang, Y.; He, H.; Xu, G. (2001). "Adaptively robust filtering for kinematic
   geodetic positioning." *Journal of Geodesy* 75:109–116.
@@ -366,6 +394,8 @@ primary, ○ corroborating / applied.
   (P1) needs a known static coordinate validated against an IGS SINEX
   (epoch-propagated, not a station webpage coordinate).
 - **`detslp_*` sharing.** Exact refactor to expose cycle-slip detection to SPP
-  without disturbing PPP/RTK — settled at P5.
+  without disturbing PPP/RTK — settled at P4.
 - **demo5 clock-jump parity.** Read the demo5 `pntpos.c` implementation before
-  P4 rather than assuming behaviour (CLAUDE.md §3).
+  P5 rather than assuming behaviour (CLAUDE.md §3).
+- **IGG-III thresholds.** The `k0`/`k1` segment thresholds need tuning against
+  the P0 baseline; start from the literature range and validate per [§4.1](#41-p0-baseline-measured-2026-05-24).
