@@ -117,7 +117,7 @@ the maintainer explicitly wants improved and which TDCP/EKF cannot.
 | **P1** | C-N0 (Sigma-ε) weighting in `varerr()`, TOML-gated *(implemented)* | WLS | bulk (rate/median); defeats gate → §4.2 | low |
 | **P2** | IGG-III robust re-weighting in `estpos()` (MAD scale) *(implemented)* | WLS | bulk (rate +11pp, median); defeats gate → §4.3 | low |
 | **P3** | Pre-robust all-satellite acceptance gate *(implemented)* — unblocks P1+P2 → clean win (§4.4) | WLS | **tail control; rate +16pp, median −43%** | medium |
-| **P4** | TDCP auxiliary constraint: velocity tightening + between-epoch consistency / slip gating | WLS + light coupling | precision; jump rejection | medium |
+| **P4** | TDCP velocity + jump-rejection QC + slip detection *(implemented)* — §4.5 | WLS + light coupling | **tail/RMS −56% vs P0; rate +20pp** | medium |
 | **P5** | Common-mode clock-jump correction + logging / reset strategy | infra | low-cost-receiver continuity; EKF prerequisite | medium |
 | **P6** | SPP-EKF: coupled pos/vel/accel/clock + Doppler/TDCP, dynamics, reuse `rtk_t` | **EKF (new)** | kinematic smoothing / precision | medium |
 
@@ -271,6 +271,36 @@ P1+P2+P3 is therefore enabled together in [`single.toml`](../../conf/benchmark/s
 the library default (`prcopt_default`) keeps all three off, so non-benchmark and
 existing-test behaviour is bit-identical.
 
+### 4.5 P4 result — TDCP velocity + jump rejection (measured 2026-05-24)
+
+P4 adds time-differenced carrier phase: a per-satellite TDCP velocity solve
+(replacing the Doppler measurement when the phase is locked and slip-free) and a
+between-epoch jump-rejection QC that drops epochs whose code position change
+disagrees with the TDCP-derived displacement (`velocity × dt`) by more than
+`tdcp_jump` (5 m). Mean over the six runs, P1+P2+P3 → P1+P2+P3+P4:
+
+| Metric | P0 | P1+P2+P3 | **+P4** | total vs P0 |
+|--------|---:|---------:|--------:|------------:|
+| <2 m rate | 41.2% | 57.5% | **61.2%** | **+20.0 pp** |
+| p68 (median) | 5.61 m | 3.19 m | **2.83 m** | **−50%** |
+| p95 (tail) | 17.71 m | 15.73 m | **12.42 m** | **−30%** |
+| RMS 2D | 17.07 m | 16.55 m | **7.54 m** | **−56%** |
+
+The jump-rejection QC collapses the **extreme tail** that P3 could not reach —
+the consistent/jumpy worst-case epochs whose code position spikes contradict the
+precise TDCP displacement. The clearest cases: tokyo_run3 RMS 36.85 → 4.84 m,
+nagoya_run1 RMS 29.26 → 15.10 m. Rate and p95 improve on every run; the epoch
+count drops only ~4%, so the QC removes wrong-position spikes, not good epochs.
+
+The benchmark measures position, so this is the QC (position) effect. The TDCP
+*velocity* (mm/s vs Doppler cm/s) is exercised by the same machinery — the QC
+works precisely because the TDCP velocity is accurate (a noisy velocity would
+mis-reject and hurt) — but a direct velocity check against the reference
+`East/North/Up Velocity` columns is deferred tooling.
+
+All four (P1–P4) are enabled in [`single.toml`](../../conf/benchmark/single.toml);
+`prcopt_default` keeps them off (`tdcp=0`), so existing behaviour is bit-identical.
+
 ## 5. Design
 
 ### 5.1 Architecture decision — reuse `rtk_t` for `PMODE_SINGLE`
@@ -335,15 +365,31 @@ rows:
 - **Doppler** rows constrain velocity / clock-drift, lifted from
   [`resdop()`](../../src/pos/mrtk_spp.c) (existing, validated logic).
 
-### 5.4 TDCP measurement update (P4 auxiliary, fused in the EKF at P6)
+### 5.4 TDCP velocity + jump rejection (P4, implemented)
 
-For each satellite continuously locked across `t-1 → t`, form
-`Δφ = φ(t) − φ(t-1)`, predict the geometric increment from satellite motion and
-the state, and add a residual row constraining velocity and the position
-increment. Previous-epoch phase/time come from `ssat.ph[0][f]` / `ssat.pt[0][f]`,
-which the SPP path must begin to populate (today only RTK/PPP do). TDCP delivers
-the mm/s-class velocity constraint (van Graas & Soloviev 2004; Freda et al.
-2015 — [§9](#9-references)).
+The auxiliary TDCP, kept within the snapshot architecture (the full EKF fusion is
+P6). Two pieces, plus the enabling infrastructure:
+
+- **Phase history**: `pntpos()` stores `ssat.ph[0][f]` / `ssat.pt[0][f]` at the
+  end of each epoch (the SPP path previously did not; only RTK/PPP did). Reached
+  via `rtk->ssat` in the post `PMODE_SINGLE` path.
+- **Slip detection** (`spp_detslp()`): LLI plus the demo5 Doppler-vs-phase-rate
+  consistency test (the `detslp_dop()` logic, kept SPP-local), gated by
+  `thresdop`. Slipped sats fall back to Doppler.
+- **TDCP velocity** (`resdop()`): per satellite, when locked and slip-free, the
+  measured range rate is the TDCP phase rate `(φ(t)−φ(t-1))/Δt` (mm/s-class;
+  van Graas & Soloviev 2004, Freda et al. 2015) instead of the Doppler;
+  otherwise Doppler (preserving the Doppler-absence invariant). The geometric
+  model and design matrix are unchanged. *Approximation:* the TDCP average rate
+  over [t-1,t] is paired with the instantaneous geometric rate at t — an
+  O(accel·Δt) error, negligible at 1 Hz next to the noise reduction.
+- **Jump rejection** (P4b): compare the code position change to the TDCP
+  displacement (`velocity·Δt`); if they differ by more than `tdcp_jump` the epoch
+  is rejected (`SOLQ_NONE`). Phase history is still recorded for rejected epochs
+  so TDCP continuity survives.
+
+Gated by `[positioning] tdcp` (default off → bit-identical). Measured effect:
+[§4.5](#45-p4-result--tdcp-velocity--jump-rejection-measured-2026-05-24).
 
 ### 5.5 Common-mode clock-jump correction (P5)
 
