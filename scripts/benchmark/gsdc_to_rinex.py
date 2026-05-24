@@ -264,7 +264,7 @@ def write_rinex(
     hdr(f"{3.04:9.2f}{'':<11}OBSERVATION DATA{'':<4}M", "RINEX VERSION / TYPE")
     hdr(f"{'gsdc_to_rinex':<20}{'MRTKLIB':<20}{now:<20}", "PGM / RUN BY / DATE")
     hdr(f"{marker:<60}", "MARKER NAME")
-    hdr(f"{'GEODETIC':<20}", "MARKER TYPE")
+    hdr(f"{'NON_GEODETIC':<20}", "MARKER TYPE")
     hdr(f"{'MRTKLIB':<20}{'MRTKLIB':<40}", "OBSERVER / AGENCY")
     hdr(f"{'0000':<20}{'Android':<20}{'1':<20}", "REC # / TYPE / VERS")
     hdr(f"{'0000':<20}{'NONE':<20}", "ANT # / TYPE")

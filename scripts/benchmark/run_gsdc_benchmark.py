@@ -31,7 +31,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -45,7 +45,6 @@ from gsdc_to_rinex import _approx_xyz, parse_csv, write_rinex  # noqa: E402
 _CANDIDATE_BINS = [
     "build/mrtk", "build/Release/mrtk", "build/Debug/mrtk",
 ]
-_GPS_UNIX_EPOCH = 315964800.0
 
 
 def _find_mrtk(hint: str = "") -> str:
