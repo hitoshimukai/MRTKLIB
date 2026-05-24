@@ -166,6 +166,34 @@ python3 scripts/benchmark/run_benchmark.py \
 
 These six rows are the fixed before/after reference for P1–P6.
 
+### 4.2 P1 result (C/N0 weighting, measured 2026-05-24)
+
+P1 ([§5.8](#58-cn0-sigma-epsilon-weighting-p1)) was measured against the P0
+baseline across a small `(snr_max, snr_error)` sweep (mean over the six runs):
+
+| Setting | <2 m rate | RMS 2D | p68 | p95 |
+|---------|----------:|-------:|----:|----:|
+| P0 (off) | 41.2% | 17.07 m | 5.61 m | 17.71 m |
+| (50, 0.5) | 44.1% | 17.05 m | 5.35 m | 18.44 m |
+| (50, 0.3) | 42.8% | 17.00 m | 5.46 m | 18.29 m |
+| (45, 0.3) | 42.1% | 17.06 m | 5.52 m | 17.99 m |
+| (48, 0.4) | 42.9% | 16.97 m | 5.45 m | 18.38 m |
+
+The pattern is consistent across every setting: C/N0 weighting **improves the
+bulk** (fix rate +1–3 pp, median p68 slightly) **but worsens the p95 tail**
+(+0.3–0.7 m). The mechanism is gate loosening — the additive SNR variance
+inflates the per-epoch covariance, so the chi-square test in `valsol()` admits
+more epochs (epoch count rises), and the newly-admitted marginal epochs land in
+the tail. Per-run it is not uniform: a clear win on tokyo_run2 (<2 m
+44.3 → 53.2%, p95 10.67 → 9.09 m) but a tail regression on nagoya_run1.
+
+This is exactly the designed division of labour: **C/N0 weighting moves the bulk,
+not the outlier tail** — the tail (the dominant P0 error) is the job of P2
+(robust residual re-weighting) and P3 (RAIM). C/N0 weighting is therefore
+**shipped but left default-off** (`snr_error = 0`) in [`single.toml`](../../conf/benchmark/single.toml);
+the enable decision is deferred until P2/P3, after which P1+P2 are evaluated
+together (the hybrid validated in Remote Sensing 12(16):2550).
+
 ## 5. Design
 
 ### 5.1 Architecture decision — reuse `rtk_t` for `PMODE_SINGLE`
@@ -276,6 +304,25 @@ A satellite flagged as slipped drops only its TDCP row for that epoch; its
 pseudorange row is still used. The existing `detslp_*` helpers are `rtk_t`-bound
 file statics in [`mrtk_ppp.c`](../../src/pos/mrtk_ppp.c); sharing them with SPP
 needs a small refactor to a common helper, designed at P4.
+
+### 5.8 C/N0 (Sigma-epsilon) weighting (P1, implemented)
+
+[`varerr()`](../../src/pos/mrtk_spp.c) gains an optional C/N0 term, identical in
+form to the RTK `varerr()` ([`mrtk_rtkpos.c`](../../src/pos/mrtk_rtkpos.c)):
+
+```
+sigma^2 += (fact * err[6])^2 * 10^(0.1 * max(0, err[5] - CN0))
+           err[5] = snr_max (dB-Hz),  err[6] = snr_error (m)
+```
+
+`err[5]`/`err[6]` were previously zero-initialised and unreachable from any
+config; P1 exposes them as legacy options `stats-snrmax` / `stats-errsnr` and
+TOML keys `[kalman_filter.measurement_error] snr_max` / `snr_error`, which also
+makes the RTK engine's long-dormant SNR term configurable. The term is gated by
+`err[6] > 0` (default 0 → off → bit-identical) and skipped when `CN0 == 0` so a
+receiver that reports no C/N0 keeps the elevation-only model. The base
+elevation/constant variance is untouched. See [§4.2](#42-p1-result-cn0-weighting-measured-2026-05-24)
+for the measured effect and why it is shipped default-off.
 
 ## 6. The Doppler-absence invariant
 
