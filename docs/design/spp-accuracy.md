@@ -119,7 +119,7 @@ the maintainer explicitly wants improved and which TDCP/EKF cannot.
 | **P3** | Pre-robust all-satellite acceptance gate *(implemented)* — unblocks P1+P2 → clean win (§4.4) | WLS | **tail control; rate +16pp, median −43%** | medium |
 | **P4** | TDCP velocity + jump-rejection QC + slip detection *(implemented)* — §4.5 | WLS + light coupling | **tail/RMS −56% vs P0; rate +20pp** | medium |
 | **P5** | Common-mode clock-jump correction + logging / reset strategy | infra | low-cost-receiver continuity; EKF prerequisite | medium |
-| **P6** | SPP-EKF: coupled pos/vel/accel/clock + Doppler/TDCP, dynamics, reuse `rtk_t` | **EKF (new)** | kinematic smoothing / precision | medium |
+| **P6** | SPP position EKF (loosely-coupled) — *investigated, reverted* (§4.6) | EKF | no gain on PPC; diverges | — |
 
 Each step ships as an independent, reviewable commit, must pass the full
 `ctest --output-on-failure`, and records numerical deltas (CLAUDE.md §7.2 —
@@ -301,9 +301,47 @@ mis-reject and hurt) — but a direct velocity check against the reference
 All four (P1–P4) are enabled in [`single.toml`](../../conf/benchmark/single.toml);
 `prcopt_default` keeps them off (`tdcp=0`), so existing behaviour is bit-identical.
 
+### 4.6 P6 investigated and reverted — the position EKF does not pay off here (2026-05-24)
+
+The loosely-coupled position EKF ([§5.1](#51-architecture-decision--reuse-rtk_t-for-pmode_single)) was
+implemented (`spp_posfilt()`: `udpos()` CV/CA time update + `filter()` with the
+WLS position and TDCP velocity as measurements) and measured against P4:
+
+| Metric (mean) | P4 | P6 loosely-coupled |
+|---------------|---:|-------------------:|
+| <2 m rate | 61.2% | 61.1% (same) |
+| p68 | 2.83 m | 2.83 m (**no smoothing gain**) |
+| p95 | 12.42 m | 12.49 m (slightly worse) |
+| RMS 2D | 7.54 m | 37.1 m (**diverges**) |
+
+Two findings, both negative on this dataset:
+
+1. **No smoothing gain.** After P1–P4 the per-epoch WLS position is already good,
+   so it dominates the filter (R ≈ a few m² ≪ the predicted covariance) and the
+   output ≈ WLS — the median is unchanged. There is little epoch-to-epoch jitter
+   left to smooth on geodetic-grade kinematic data.
+2. **Divergence risk.** The only way to gain smoothing is to trust the
+   velocity-driven prediction, but the TDCP velocity is occasionally
+   slip-corrupted; integrated into the filter state it diverges (RMS spikes to
+   100s of m). An innovation gate tames the worst of it but the residual spikes
+   still leave RMS ~5× worse than P4, with no upside.
+
+The position EKF's value (track smoothing, coasting) shows up where there is
+real jitter to smooth — **static** receivers or **smartphone/low-cost** data —
+which the geodetic kinematic PPC set cannot exercise. It also fundamentally
+cannot fix the remaining tail, which is consistent NLOS bias (needs 3DMA /
+external aiding). **P6 was therefore reverted**; the SPP accuracy work ships at
+P1–P4. A future EKF would need a tightly-coupled formulation with rigorous slip
+handling, validated on smartphone/static data (e.g. the GSDC / SDC sets).
+
 ## 5. Design
 
 ### 5.1 Architecture decision — reuse `rtk_t` for `PMODE_SINGLE`
+
+> **Status: investigated and reverted ([§4.6](#46-p6-investigated-and-reverted--the-position-ekf-does-not-pay-off-here-2026-05-24)).**
+> The loosely-coupled variant below was built and measured; it gave no gain and
+> diverged on the geodetic kinematic benchmark. Retained as design rationale for
+> a future tightly-coupled attempt on static/smartphone data.
 
 The decisive finding is that the EKF infrastructure SPP needs already exists and
 is already wired into the SPP code path:
