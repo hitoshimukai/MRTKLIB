@@ -2459,6 +2459,13 @@ static void udsatpb(gtime_t gt, nav_t* nav, osb_t* biaosb, osb_t* fcbosb, const 
         }
     }
     if (0 < udcnt || popt->pppsatpb == 2) {
+        if (udcnt == 0) {
+            /* forced bia but no valid OSB phase bias (e.g. expired past
+             * maxbiasdt): drop any stale phase biases so corr_meas() does not
+             * keep applying them. */
+            memset(nav->osb.vspb, 0x00, sizeof(nav->osb.vspb));
+            memset(nav->osb.spb, 0x00, sizeof(nav->osb.spb));
+        }
         trace(NULL, 4, "%s bia update satellite phase bias cnt=%d dt=%.f\n", time_str(gt, 0), udcnt, popt->maxbiasdt);
         return;
     }

@@ -323,9 +323,9 @@ def compute_abs_metrics(true_xyz, test_data, skip_epochs=0):
         "p95_3d":   float(np.percentile(e3, 95)),
         "max_3d":   float(np.max(e3)),
         "fix_rate": sum(1 for q in q_list if q in (1, 6)) / n * 100.0,
-        # integer-fixed only (Q=1 narrow-lane/RTK fix, Q=4 DGPS-fix); excludes
-        # Q=6 PPP float. Used by --min-fix-rate to assert PPP-AR actually fixes.
-        "fix_rate_int": sum(1 for q in q_list if q in (1, 4)) / n * 100.0,
+        # integer-fixed only (Q=1 = narrow-lane/RTK fix); excludes Q=6 PPP float.
+        # Used by --min-fix-rate to assert PPP-AR actually resolves ambiguities.
+        "fix_rate_int": sum(1 for q in q_list if q == 1) / n * 100.0,
     }
 
 
