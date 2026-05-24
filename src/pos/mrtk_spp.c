@@ -664,7 +664,7 @@ static int raim_fde(const obsd_t* obs, int n, const double* rs, const double* dt
  * phase (pt/ph), populated by pntpos at the end of each epoch. */
 static void spp_detslp(const obsd_t* obs, int n, const ssat_t* ssat, double thresdop, int* slip) {
     double dph, dpt, tt, mean = 0.0, dif[MAXOBS] = {0};
-    int i, sat, ndop = 0;
+    int i, sat, ndop = 0, valid[MAXOBS] = {0};
 
     for (i = 0; i < n && i < MAXOBS; i++) {
         slip[i] = (obs[i].LLI[0] & 1) ? 1 : 0; /* loss-of-lock indicator */
@@ -679,6 +679,7 @@ static void spp_detslp(const obsd_t* obs, int n, const ssat_t* ssat, double thre
         dph = (obs[i].L[0] - ssat[sat - 1].ph[0][0]) / tt; /* phase rate (cyc/s) */
         dpt = -obs[i].D[0];                                /* Doppler-predicted rate */
         dif[i] = dph - dpt;
+        valid[i] = 1; /* explicit validity — dif can legitimately be 0.0 */
         if (fabs(dif[i]) < 3.0 * thresdop) {
             mean += dif[i];
             ndop++;
@@ -689,7 +690,7 @@ static void spp_detslp(const obsd_t* obs, int n, const ssat_t* ssat, double thre
     }
     mean /= ndop; /* common-mode (receiver clock) drift */
     for (i = 0; i < n && i < MAXOBS; i++) {
-        if (dif[i] != 0.0 && fabs(dif[i] - mean) > thresdop) {
+        if (valid[i] && fabs(dif[i] - mean) > thresdop) {
             slip[i] = 1;
         }
     }
@@ -720,7 +721,7 @@ static int resdop(const obsd_t* obs, int n, const double* rs, const double* dts,
         /* measured range rate (cyc/s) and its Std (m/s): TDCP primary, Doppler fallback */
         use = 0;
         meas = sig = 0.0;
-        if (tdcp && ssat && !slip[i] && obs[i].L[0] != 0.0 && ssat[sat - 1].ph[0][0] != 0.0) {
+        if (tdcp && ssat && slip && !slip[i] && obs[i].L[0] != 0.0 && ssat[sat - 1].ph[0][0] != 0.0) {
             tt = timediff(obs[i].time, ssat[sat - 1].pt[0][0]);
             if (fabs(tt) >= DTTOL && fabs(tt) <= 3.0) {
                 meas = (obs[i].L[0] - ssat[sat - 1].ph[0][0]) / tt; /* == dph (cyc/s) */
@@ -764,11 +765,12 @@ static int resdop(const obsd_t* obs, int n, const double* rs, const double* dts,
     return nv;
 }
 /* estimate receiver velocity ------------------------------------------------*/
-static void estvel(const obsd_t* obs, int n, const double* rs, const double* dts, const nav_t* nav, const prcopt_t* opt,
-                   sol_t* sol, const double* azel, const int* vsat, const ssat_t* ssat, const int* slip) {
+/* returns 1 if the velocity converged (sol->rr[3..5] written), 0 otherwise */
+static int estvel(const obsd_t* obs, int n, const double* rs, const double* dts, const nav_t* nav, const prcopt_t* opt,
+                  sol_t* sol, const double* azel, const int* vsat, const ssat_t* ssat, const int* slip) {
     double x[4] = {0}, dx[4], Q[16], *v, *H;
     double err = opt->err[4]; /* Doppler error (Hz) */
-    int i, j, nv, tdcp = (opt->tdcp == 1 && ssat != NULL);
+    int i, j, nv, stat = 0, tdcp = (opt->tdcp == 1 && ssat != NULL);
 
     trace(NULL, 3, "estvel  : n=%d\n", n);
 
@@ -797,11 +799,13 @@ static void estvel(const obsd_t* obs, int n, const double* rs, const double* dts
             sol->qv[3] = (float)Q[1];  /* xy */
             sol->qv[4] = (float)Q[6];  /* yz */
             sol->qv[5] = (float)Q[2];  /* zx */
+            stat = 1;
             break;
         }
     }
     free(v);
     free(H);
+    return stat;
 }
 /* single-point positioning ----------------------------------------------------
  * compute receiver position, velocity, clock bias by single-point positioning
@@ -873,12 +877,14 @@ int pntpos(mrtk_ctx_t* ctx, const obsd_t* obs, int n, const nav_t* nav, const pr
     }
     /* estimate receiver velocity (TDCP primary, Doppler fallback) */
     if (stat) {
-        estvel(obs, n, rs, dts, nav, &opt_, sol, azel_, vsat, ssat, slip);
+        int velok = estvel(obs, n, rs, dts, nav, &opt_, sol, azel_, vsat, ssat, slip);
 
         /* #116 P4b: TDCP jump-rejection — drop epochs whose code position change
          * disagrees with the TDCP-derived displacement (velocity * dt). Catches
-         * the "jumpy" tail; the stable-bias tail is the EKF's remit (P6). */
-        if (opt_.tdcp == 1 && ssat && has_prev) {
+         * the "jumpy" tail; the stable-bias tail is the EKF's remit (P6).
+         * Requires a valid velocity this epoch (estvel converged) — otherwise
+         * sol->rr[3..5] is stale/zero and would falsely reject moving epochs. */
+        if (opt_.tdcp == 1 && ssat && has_prev && velok) {
             double tt = timediff(obs[0].time, prev_time);
             if (fabs(tt) > DTTOL && fabs(tt) <= 3.0) {
                 double d[3], dn, thr = opt_.tdcpjump > 0.0 ? opt_.tdcpjump : 5.0;

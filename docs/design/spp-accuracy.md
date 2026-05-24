@@ -1,12 +1,15 @@
 # MRTKLIB — SPP Accuracy Enhancement (Doppler / TDCP EKF + Robust Weighting)
 
-> **Status:** Proposed (design) · **Tracking:** [#116](https://github.com/h-shiono/MRTKLIB/issues/116) · **Phase:** 0 (pre-implementation)
+> **Status:** P1–P4 implemented (PR #164, default-off) · P5/P6 deferred to the
+> smartphone benchmark ([#165](https://github.com/h-shiono/MRTKLIB/issues/165)) ·
+> **Tracking:** [#116](https://github.com/h-shiono/MRTKLIB/issues/116)
 >
-> This document is the design rationale for improving single-point positioning
-> (SPP, `PMODE_SINGLE`) accuracy to be competitive with commercial receivers.
-> No algorithm code is changed by this document. Per CLAUDE.md §3/§9.1 the
-> changes it describes are GNSS-algorithm / design changes that each require
-> explicit maintainer sign-off and an algorithm-safety review before landing.
+> This document is both the design rationale and the as-built record for
+> improving single-point positioning (SPP, `PMODE_SINGLE`) accuracy. P1–P4 ship
+> in PR #164 (all TOML-gated, `prcopt_default` off → existing behaviour
+> bit-identical); P5 (clock-jump) and P6 (position EKF) were investigated and
+> deferred (§4.6). GNSS-algorithm changes here each had maintainer sign-off and
+> an algorithm-safety review per CLAUDE.md §3/§9.1; per-step results are in §4.
 
 ---
 
