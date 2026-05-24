@@ -497,6 +497,7 @@ and shipped enabled together in `conf/benchmark/single.toml`:
 ```toml
 [positioning]
 mode = "single"
+correction = "none"
 robust = "igg3"     # IGG-III robust + pre-robust gate
 tdcp = true         # TDCP velocity + jump rejection
 tdcp_jump = 5.0     # m
