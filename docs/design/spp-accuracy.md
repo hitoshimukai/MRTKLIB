@@ -114,9 +114,9 @@ the maintainer explicitly wants improved and which TDCP/EKF cannot.
 | Step | Content | Architecture | Primary gain | Risk |
 |------|---------|--------------|--------------|------|
 | **P0** | `single` mode in PPC benchmark + baseline *(shipped)* | tooling | measurement harness | none |
-| **P1** | C-N0 (Sigma-ε) weighting in `varerr()`, TOML-gated | WLS | **bias** (static + kinematic) | low |
-| **P2** | IGG-III equivalent-weight robust re-weighting in `estpos()` | WLS | **outlier suppression** (dominant error) | low |
-| **P3** | RAIM-FDE improvement + Doppler-based quality control | WLS | gross-blunder exclusion | low |
+| **P1** | C-N0 (Sigma-ε) weighting in `varerr()`, TOML-gated *(implemented)* | WLS | bulk (rate/median); defeats gate → §4.2 | low |
+| **P2** | IGG-III robust re-weighting in `estpos()` (MAD scale) *(implemented)* | WLS | bulk (rate +11pp, median); defeats gate → §4.3 | low |
+| **P3** | **Weighting-proof acceptance gate** (a-priori chi-square / covariance / RAIM integrity) — unblocks P1+P2's tail | WLS | **tail (p95/RMS), the dominant error** | medium |
 | **P4** | TDCP auxiliary constraint: velocity tightening + between-epoch consistency / slip gating | WLS + light coupling | precision; jump rejection | medium |
 | **P5** | Common-mode clock-jump correction + logging / reset strategy | infra | low-cost-receiver continuity; EKF prerequisite | medium |
 | **P6** | SPP-EKF: coupled pos/vel/accel/clock + Doppler/TDCP, dynamics, reuse `rtk_t` | **EKF (new)** | kinematic smoothing / precision | medium |
@@ -193,6 +193,44 @@ not the outlier tail** — the tail (the dominant P0 error) is the job of P2
 **shipped but left default-off** (`snr_error = 0`) in [`single.toml`](../../conf/benchmark/single.toml);
 the enable decision is deferred until P2/P3, after which P1+P2 are evaluated
 together (the hybrid validated in Remote Sensing 12(16):2550).
+
+### 4.3 P2 result and the gate-defeat finding (measured 2026-05-24)
+
+P2 ([§5.6](#56-robust-estimation-p2-implemented-and-the-gate-defeat-finding))
+adds IGG-III robust re-weighting. Mean over the six runs:
+
+| Config | <2 m rate | RMS 2D | p68 | p95 |
+|--------|----------:|-------:|----:|----:|
+| P0 baseline | 41.2% | 17.07 m | 5.61 m | 17.71 m |
+| P2 alone (k0=1.5,k1=4.0) | 47.6% | 21.35 m | 4.83 m | 30.82 m |
+| **P1+P2 (1.5,4.0)+snr** | **52.5%** | 19.11 m | **4.30 m** | 27.30 m |
+
+Robust + C/N0 weighting is a **large bulk win** (fix rate 41 → 52 %, median p68
+5.61 → 4.30 m) but **blows up the p95 tail** (17.7 → 27 m). The per-run detail
+identifies the mechanism precisely:
+
+| Run | epochs N (P0 → P1+P2) | p68 | p95 |
+|-----|----------------------:|-----|-----|
+| tokyo_run2 | 8327 → 8505 (stable) | 3.91 → 2.19 m | 10.67 → **8.08 m** ✓ |
+| tokyo_run3 | 14265 → 13933 (−) | 3.91 → 2.45 m | 14.69 → **14.15 m** ✓ |
+| nagoya_run2 | 6101 → 8573 (**+40 %**) | 3.41 → 6.20 m | 20.30 → **56.13 m** ✗ |
+
+**Where the epoch count N stays stable, P1+P2 is a clean win on every metric**
+(tokyo_run2/run3: better rate, median, *and* tail). **Where N explodes, the tail
+explodes with it** (nagoya_run2 +40 % epochs → p95 triples). The median improves
+almost everywhere — the estimator genuinely produces better solutions.
+
+The problem is therefore **not the estimator but the output gate**: the C/N0
+variance inflation and robust down-weighting shrink the residuals that
+`valsol()`'s chi-square test consumes, so the test stops rejecting the bad
+epochs it used to catch (N rises) and those epochs land in the tail. The
+weighting defeats the gate.
+
+This precisely scopes **P3**: restore an acceptance gate that the weighting
+cannot defeat (e.g. chi-square on a-priori variances, a formal-covariance /
+post-exclusion-DOP integrity check, or proper RAIM protection levels). With the
+gate restored, the tokyo_run2 result shows P1+P2+P3 should be a clean win across
+the board. Until then P1 and P2 stay default-off.
 
 ## 5. Design
 
@@ -279,16 +317,28 @@ differencing — preventing the jump from being mistaken for per-satellite cycle
 slips (Everett et al. 2022 / demo5 — [§9](#9-references)). It is a prerequisite
 for stable TDCP on low-cost hardware.
 
-### 5.6 Robust estimation (P2, carried into the EKF at P6)
+### 5.6 Robust estimation (P2, implemented) and the gate-defeat finding
 
 An IGG-III equivalent-weight (Yang et al. 2001) re-weighting pass is added to the
-`estpos()` WLS iteration first (P2): each measurement's weight is scaled by a
-three-segment function of its standardized residual, smoothly down-weighting
-medium outliers and rejecting gross ones — directly attacking the
-outlier-dominated baseline ([§4.1](#41-p0-baseline-measured-2026-05-24)) without
-any architecture change. The same residual-evaluation point is then exposed in
-the EKF measurement update (P6), giving the hybrid robust-WLS + TDCP-EKF
-structure validated in Remote Sensing 12(16):2550 (2020).
+`estpos()` WLS Gauss-Newton iteration: each pseudorange row's weight is scaled by
+a three-segment function `igg3_weight()` of its standardized residual, smoothly
+down-weighting medium outliers (`k0<|r̃|≤k1`) and rejecting gross ones
+(`|r̃|>k1`). The residual is standardized by a **MAD robust scale**
+(`σ̂ = max(1, 1.4826·median|r̃|)`; Rousseeuw & Croux 1993, Huber 1981), so a
+uniform mis-scaling of the a-priori variances does not trigger mass rejection.
+It is applied from the 2nd iteration (`i≥1`), after the clock is estimated, and
+only to the satellite rows (the rank constraints are left intact). Gated by
+`[positioning] robust = "igg3"` with `robust_k0`/`robust_k1` (defaults 1.5/4.0);
+`robust = "off"` (default) is bit-identical.
+
+The benchmark ([§4.3](#43-p2-result-and-the-gate-defeat-finding-measured-2026-05-24))
+shows this is a large bulk win that **defeats the chi-square gate** and inflates
+the tail. That is the central finding: weighting (P1) and robust re-weighting
+(P2) improve the solution but make `valsol()`'s residual-based test pass for
+epochs it should reject. The fix is P3 (a weighting-proof acceptance gate), not
+more estimator work. The same robust pass is later exposed in the EKF
+measurement update (P6), giving the robust-WLS + TDCP-EKF hybrid validated in
+Remote Sensing 12(16):2550 (2020).
 
 ### 5.7 Cycle-slip gating (P4 for TDCP auxiliary, reused at P6)
 
@@ -434,6 +484,19 @@ primary, ○ corroborating / applied.
 - ○ "Mitigating Integrity Risk in SBAS Positioning Using Enhanced IGG III Robust
   Estimation." *Remote Sensing* 17(17):3067 (2025).
   DOI [10.3390/rs17173067](https://doi.org/10.3390/rs17173067).
+
+**Robust scale (MAD) for the standardized residual (P2)**
+
+- ◎ Rousseeuw, P.J.; Croux, C. (1993). "Alternatives to the Median Absolute
+  Deviation." *JASA* 88(424):1273–1283.
+  DOI [10.1080/01621459.1993.10476408](https://doi.org/10.1080/01621459.1993.10476408).
+  Establishes `MADn = 1.4826·med{|xᵢ − med xⱼ|}` as a 50%-breakdown,
+  bounded-influence robust scale (1.4826 = Gaussian-consistency factor).
+- ◎ Huber, P.J. (1981). *Robust Statistics*. Wiley. MAD as the "single most
+  useful ancillary estimate of scale"; foundation for robust scale + IRLS.
+- ○ Blewitt, G. et al. (2016). "MIDAS robust trend estimator for accurate GPS
+  station velocities without step detection." *JGR Solid Earth* 121 — MAD-scaled
+  robust estimation in operational GNSS.
 
 ## 10. Open questions
 
