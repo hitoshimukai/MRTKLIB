@@ -326,13 +326,24 @@ Two findings, both negative on this dataset:
    100s of m). An innovation gate tames the worst of it but the residual spikes
    still leave RMS ~5× worse than P4, with no upside.
 
+**Caveat — this was not a tuned evaluation.** The first cut reused `udpos()`'s
+RTK-oriented process noise (white-noise on acceleration only) and a single
+innovation-gate threshold; the SINGLE-specific process noise, velocity weight,
+gate, and — most importantly — the slip handling that feeds the velocity were
+*not* swept. So this is "an untuned first cut on unfavourable data," not "the
+position EKF cannot work." Two things still make PPC the wrong place to tune it:
+(a) the post-P1–P4 WLS already dominates, so the smoothing upside is inherently
+small here; (b) the remaining tail is consistent NLOS bias, which no filter
+fixes (needs 3DMA / external aiding).
+
 The position EKF's value (track smoothing, coasting) shows up where there is
-real jitter to smooth — **static** receivers or **smartphone/low-cost** data —
-which the geodetic kinematic PPC set cannot exercise. It also fundamentally
-cannot fix the remaining tail, which is consistent NLOS bias (needs 3DMA /
-external aiding). **P6 was therefore reverted**; the SPP accuracy work ships at
-P1–P4. A future EKF would need a tightly-coupled formulation with rigorous slip
-handling, validated on smartphone/static data (e.g. the GSDC / SDC sets).
+real jitter to smooth — **static** receivers or **smartphone/low-cost** data,
+which the geodetic kinematic PPC set cannot exercise. **P6 was therefore reverted**
+from the P1–P4 ship and deferred: a proper, *tuned* re-attempt (ideally a
+tightly-coupled formulation with rigorous slip handling) belongs on a
+smartphone/static benchmark — the GSDC / SDC sets, where jitter is large and
+clock jumps actually occur (which also makes that the right venue for P5's
+clock-jump correction).
 
 ## 5. Design
 
