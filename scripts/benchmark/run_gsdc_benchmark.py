@@ -138,7 +138,9 @@ def print_summary(rows: list[dict]) -> None:
         m = r["metrics"]
         cid = r["id"][:42]
         if m is None:
-            print(f"{cid:<42} {'—':>5}  [{r['status']}]")
+            d = "—"
+            print(f"{cid:<42} {d:>5} {d:>6} {d:>5} {d:>6} "
+                  f"{d:>8} {d:>8} {d:>8} {d:>8}  [{r['status']}]")
             continue
         print(f"{cid:<42} {m['n_matched']:>5} {r['coverage']:>5.1f}% "
               f"{m['mean_sv_all']:>5.1f} "
