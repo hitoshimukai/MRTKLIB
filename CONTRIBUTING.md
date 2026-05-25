@@ -176,6 +176,12 @@ Project-wide rules are in [CLAUDE.md §4](CLAUDE.md). The headline items:
   `.clang-format-ignore` (`src/core/tomlc99`, `util/`) — do not reformat it.
   `ruff check` (lint) is **not** part of the formatting gate and is tracked
   separately.
+
+  CI enforces all three checks via the `Formatter Check` workflow
+  (`.github/workflows/format.yaml`, build-free): a PR that is not
+  formatter-clean fails. The workflow uses the pinned versions above and the
+  same `.clang-format-ignore` exclude, so a local `clang-format`/`taplo fmt
+  --check`/`ruff format --check` matches CI exactly.
 - **`extern "C"`** compatibility on headers that are still consumed by
   legacy C files.
 - **`const`-correctness** on pointer parameters that are not written to.

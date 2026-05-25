@@ -1,0 +1,57 @@
+name: Formatter Check
+
+# Lightweight, build-free gate that fails when code is not formatted with the
+# project's pinned formatters. Kept separate from build.yaml (the ~10-min
+# regression job) so style feedback is fast. Check-only: it never pushes
+# formatting commits back (signing policy + fork-PR token constraints; see #166).
+#
+# Pinned versions MUST match CONTRIBUTING.md / CLAUDE.md and the versions used
+# for the one-time sweep in #166. Bumping a version here is a deliberate change
+# that reformats the codebase — do it in its own PR.
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # clang-format (C/C++) and ruff (Python) ship exact-versioned wheels.
+      - name: Install pinned clang-format + ruff
+        run: |
+          pip install "clang-format==21.1.6" "ruff==0.15.2"
+          clang-format --version
+          ruff --version
+
+      - name: Install pinned taplo
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-x86_64.gz \
+            | gunzip > "$HOME/.local/bin/taplo"
+          chmod +x "$HOME/.local/bin/taplo"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/taplo" --version
+
+      # Vendored / upstream-derived code (src/core/tomlc99, util/) is skipped via
+      # .clang-format-ignore — the same exclude list used by the #166 sweep.
+      - name: clang-format (C/C++)
+        run: git ls-files '*.c' '*.cpp' '*.h' '*.hpp' | xargs clang-format --dry-run --Werror
+
+      # Run the remaining checks even if an earlier one failed, so a PR sees all
+      # formatting problems at once instead of one formatter at a time.
+      - name: taplo (TOML)
+        if: ${{ !cancelled() }}
+        run: taplo fmt --check
+
+      - name: ruff format (Python)
+        if: ${{ !cancelled() }}
+        run: ruff format --check .
