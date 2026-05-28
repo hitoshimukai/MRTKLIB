@@ -2269,6 +2269,142 @@ extern void rtkfree(rtk_t* rtk) {
     rtk->Pa = NULL;
 }
 
+/* signal selection for PPP --------------------------------------------------*/
+static void signal_sel_ppp(obsd_t* pppobs, const nav_t* nav, const prcopt_t* opt, int ns) {
+    char sattype[MAXANT], satid[8], *tstr = time_str(pppobs->time, 3);
+    int i, j, sigtype, sys;
+
+    for (i = 0; i < ns; i++) {
+        sys = satsys(pppobs->sat, NULL);
+        sigtype = 0; /* 0:GPS=L1C/A-L2P, GLO=G1-G2, GAL=E1-E5a, QZS=L1C-L5, BDS=B1_2-B3 */
+
+#if 0
+        /* original code from MALIB */
+        strcpy(sattype, nav->pcvs[pppobs->sat - 1].type);
+        for (j = strlen(sattype) - 1; j > 0; j--) {
+            if (sattype[j] != ' ') {
+                break;
+            }
+            sattype[j] = '\0'; /* delete tail blank */
+        }
+        if (0 == strcmp(sattype, "BLOCK IIR-M")) {
+            sigtype = opt->pppsig[0]; /* 1:L1C/A-L2C */
+        } else if (0 == strcmp(sattype, "BLOCK IIF")) {
+            sigtype = opt->pppsig[1]; /* 1:L1C/A-L2C, 2:L1C/A-L5 */
+        } else if (0 == strcmp(sattype, "BLOCK IIIA")) {
+            sigtype = opt->pppsig[2];
+        } else if (0 == strcmp(sattype, "QZSS")) {
+            sigtype = opt->pppsig[3]; /* 1:L1C/A-L2C */
+        } else if (0 == strcmp(sattype, "QZSS-2G")) {
+            sigtype = opt->pppsig[3];
+        } else if (0 == strcmp(sattype, "QZSS-2I")) {
+            sigtype = opt->pppsig[3];
+        } else if (0 == strcmp(sattype, "QZSS-2A")) {
+            sigtype = opt->pppsig[3];
+        } else if (0 == strcmp(sattype, "BEIDOU-3G-CAST")) {
+            sigtype = opt->pppsig[4]; /* 1:B1-B2a */
+        } else if (0 == strcmp(sattype, "BEIDOU-3I")) {
+            sigtype = opt->pppsig[4];
+        } else if (0 == strcmp(sattype, "BEIDOU-3M-CAST")) {
+            sigtype = opt->pppsig[4];
+        } else if (0 == strcmp(sattype, "BEIDOU-3M-SECM")) {
+            sigtype = opt->pppsig[4];
+        } else if (0 == strcmp(sattype, "BEIDOU-3SI-CAST")) {
+            sigtype = opt->pppsig[4];
+        } else if (0 == strcmp(sattype, "BEIDOU-3SI-SECM")) {
+            sigtype = opt->pppsig[4];
+        } else if (0 == strcmp(sattype, "BEIDOU-3SM-CAST")) {
+            sigtype = opt->pppsig[4];
+        } else if (0 == strcmp(sattype, "GALILEO-1")) {
+            sigtype = opt->pppsig[5];
+        } else if (0 == strcmp(sattype, "GALILEO-2")) {
+            sigtype = opt->pppsig[5];
+        }
+#else
+        /* tentative workaround */
+        switch (sys) {
+            case SYS_GPS:
+                if (opt->pppsig[0] == 1) { /* L1/L5 */
+                    sigtype = 2;
+                }
+                break;
+            case SYS_GAL:
+                if (opt->pppsig[2] == 1) { /* E1/E5b */
+                    sigtype = 1;
+                }
+                break;
+            case SYS_QZS:
+                if (opt->pppsig[1] == 1) { /* L1/L2 */
+                    sigtype = 1;
+                }
+                break;
+            case SYS_CMP:
+                if (opt->pppsig[4] == 1) { /* 1:B1I/B2a */
+                    sigtype = 1;
+                }
+                break;
+        }
+#endif
+
+        switch (sys) {
+            case SYS_GPS:
+                signal_replace(pppobs, 0, '1', "C");
+                if (sigtype == 0) {                            /* L1C/A-L2P */
+                    signal_replace(pppobs, 1, '2', "PYWCMND"); /* Note, codepries="PYWCMNDLXS" */
+                } else if (sigtype == 1) {                     /* L1C/A-L2C */
+                    signal_replace(pppobs, 1, '2', "LXS");
+                } else if (sigtype == 2) { /* L1C/A-L5 */
+                    signal_replace(pppobs, 1, '5', "QXI");
+                }
+                break;
+            case SYS_GLO:
+                signal_replace(pppobs, 0, '1', "CP");
+                signal_replace(pppobs, 1, '2', "PC");
+                break;
+            case SYS_GAL:
+                if (sigtype == 0) { /* E1-E5a */
+                    signal_replace(pppobs, 0, '1', "CBX");
+                    signal_replace(pppobs, 1, '5', "QXI");
+                } else if (sigtype == 1) { /* E1-E5b */
+                    signal_replace(pppobs, 0, '1', "CBX");
+                    signal_replace(pppobs, 1, '7', "QXI");
+                }
+                break;
+            case SYS_QZS:
+                if (sigtype == 0) { /* L1C-L5 */
+                    signal_replace(pppobs, 0, '1', "LXS");
+                    signal_replace(pppobs, 1, '5', "QXI");
+                } else if (sigtype == 1) { /* L1C/A-L2C */
+                    signal_replace(pppobs, 0, '1', "C");
+                    signal_replace(pppobs, 1, '2', "LXS");
+                } else if (sigtype == 2) { /* L1C/B-L5 */
+                    signal_replace(pppobs, 0, '1', "E");
+                    signal_replace(pppobs, 1, '5', "QXI");
+                } else if (sigtype == 10) { /* L1C/AorB-L5 */
+                    signal_replace(pppobs, 0, '1', "CE");
+                    signal_replace(pppobs, 1, '5', "QXI");
+                }
+                break;
+            case SYS_CMP:
+                if (sigtype == 0) { /* B1-B3 */
+                    signal_replace(pppobs, 0, '2', "QXI");
+                    signal_replace(pppobs, 1, '6', "QXI");
+                } else if (sigtype == 1) { /* B1C-B2a */
+                    signal_replace(pppobs, 0, '1', "PXD");
+                    signal_replace(pppobs, 1, '5', "PXD");
+                }
+                break;
+        }
+        satno2id(pppobs->sat, satid);
+        trace(NULL, 3,
+              "signal_sel_ppp %s %s %-18s code=%2d,%2d P=%13.3f,%13.3f L=%13.3f,%13.3f LLI=%d,%d "
+              "SNR=%6.2f,%6.2f\n",
+              tstr, satid, sattype, pppobs->code[0], pppobs->code[1], pppobs->P[0], pppobs->P[1], pppobs->L[0],
+              pppobs->L[1], pppobs->LLI[0], pppobs->LLI[1], pppobs->SNR[0] * 0.001, pppobs->SNR[1] * 0.001);
+        pppobs++;
+    }
+}
+
 /* update satellite code bias ------------------------------------------------*/
 static void udsatcb(gtime_t gt, nav_t* nav, osb_t* biaosb, const prcopt_t* popt) {
     int i, j, sys, udcnt = 0, ssrcode = CODE_NONE;
@@ -2685,8 +2821,6 @@ extern int rtkpos(mrtk_ctx_t* ctx, rtk_t* rtk, const obsd_t* obs, int n, nav_t* 
     int i, nu, nr[2] = {0};
     char msg[128] = "";
 
-    static obsd_t pppobs[MAXOBS];
-
     trace(ctx, 3, "rtkpos  : time=%s n=%d\n", time_str(obs[0].time, 3), n);
 
     /* set base station position */
@@ -2720,48 +2854,14 @@ extern int rtkpos(mrtk_ctx_t* ctx, rtk_t* rtk, const obsd_t* obs, int n, nav_t* 
         if (sppopt.mode == PMODE_PPP_RTK || sppopt.mode == PMODE_VRS_RTK) {
             sppopt.sateph = EPHOPT_BRDC;
         }
+        if (!pntpos(ctx, obs, nu, nav, &sppopt, &rtk->sol, NULL, rtk->ssat, msg)) {
+            errmsg(rtk, "point pos error (%s)\n", msg);
 
-        if (opt->mode >= PMODE_PPP_KINEMA) {
-            memcpy(pppobs, obs, sizeof(obsd_t) * nu);
-            for (int j = 0; j < n; j++) {
-                int sys = satsys(obs[j].sat, NULL);
-                if (sys == SYS_GAL || sys == SYS_QZS) {
-                    pppobs[j].SNR[1] = obs[j].SNR[2];
-                    pppobs[j].LLI[1] = obs[j].LLI[2];
-                    pppobs[j].code[1] = obs[j].code[2];
-                    pppobs[j].L[1] = obs[j].L[2];
-                    pppobs[j].P[1] = obs[j].P[2];
-                    pppobs[j].D[1] = obs[j].D[2];
-                }
-                if (sys == SYS_GLO) {
-                    pppobs[j].SNR[1] = obs[j].SNR[6];
-                    pppobs[j].LLI[1] = obs[j].LLI[6];
-                    pppobs[j].code[1] = obs[j].code[6];
-                    pppobs[j].L[1] = obs[j].L[6];
-                    pppobs[j].P[1] = obs[j].P[6];
-                    pppobs[j].D[1] = obs[j].D[6];
-                }
-            }
-            if (!pntpos(ctx, pppobs, nu, nav, &sppopt, &rtk->sol, NULL, rtk->ssat, msg)) {
-                errmsg(rtk, "point pos error (%s)\n", msg);
-
-                if (!rtk->opt.dynamics) {
-                    trace(ctx, 4, "obs=\n");
-                    traceobs(ctx, 4, obs, n);
-                    outsolstat(rtk);
-                    return 0;
-                }
-            }
-        } else {
-            if (!pntpos(ctx, obs, nu, nav, &sppopt, &rtk->sol, NULL, rtk->ssat, msg)) {
-                errmsg(rtk, "point pos error (%s)\n", msg);
-
-                if (!rtk->opt.dynamics) {
-                    trace(ctx, 4, "obs=\n");
-                    traceobs(ctx, 4, obs, n);
-                    outsolstat(rtk);
-                    return 0;
-                }
+            if (!rtk->opt.dynamics) {
+                trace(ctx, 4, "obs=\n");
+                traceobs(ctx, 4, obs, n);
+                outsolstat(rtk);
+                return 0;
             }
         }
     }
@@ -2827,10 +2927,14 @@ extern int rtkpos(mrtk_ctx_t* ctx, rtk_t* rtk, const obsd_t* obs, int n, nav_t* 
     }
     /* precise point positioning */
     if (opt->mode >= PMODE_PPP_KINEMA) {
+        /* tentative workaround */
+        static obsd_t pppobs[MAXOBS];
+        memcpy(pppobs, obs, sizeof(obsd_t) * nu);
+        signal_sel_ppp(pppobs, nav, opt, nu);
+        pntpos(ctx, pppobs, nu, nav, &rtk->opt, &rtk->sol, NULL, rtk->ssat, msg);
         miono_get_corr(rtk->sol.rr, nav);
         trace(ctx, 4, "obs=\n");
-        traceobs(ctx, 4, obs, n);
-        // pppos(ctx, rtk, obs, nu, nav);
+        traceobs(ctx, 4, pppobs, n);
         pppos(ctx, rtk, pppobs, nu, nav);
         outsolstat(rtk);
         return 1;
