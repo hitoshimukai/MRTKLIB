@@ -2927,6 +2927,13 @@ extern int rtkpos(mrtk_ctx_t* ctx, rtk_t* rtk, const obsd_t* obs, int n, nav_t* 
     }
     /* precise point positioning */
     if (opt->mode >= PMODE_PPP_KINEMA) {
+#if 0
+        miono_get_corr(rtk->sol.rr, nav);
+        trace(ctx, 4, "obs=\n");
+        traceobs(ctx, 4, obs, n);
+        pppos(ctx, rtk, obs, nu, nav);
+        outsolstat(rtk);
+#else
         /* tentative workaround */
         static obsd_t pppobs[MAXOBS];
         memcpy(pppobs, obs, sizeof(obsd_t) * nu);
@@ -2937,6 +2944,7 @@ extern int rtkpos(mrtk_ctx_t* ctx, rtk_t* rtk, const obsd_t* obs, int n, nav_t* 
         traceobs(ctx, 4, pppobs, n);
         pppos(ctx, rtk, pppobs, nu, nav);
         outsolstat(rtk);
+#endif
         return 1;
     }
     trace(ctx, 4, "obs=\n");
