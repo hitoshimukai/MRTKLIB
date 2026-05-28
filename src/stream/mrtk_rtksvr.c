@@ -819,6 +819,28 @@ static void* rtksvrthread(void* arg) {
             for (j = 0; j < svr->obs[1][0].n && obs.n < MAXOBS * 2; j++) {
                 obs.data[obs.n++] = svr->obs[1][0].data[j];
             }
+
+            /* WORKAROUND FOR MADOCA-PPP */
+            for (j = 0; j < obs.n; j++) {
+                int sys = satsys(obs.data[j].sat, NULL);
+                if (sys == SYS_GAL || sys == SYS_QZS) {
+                    obs.data[j].SNR[1] = obs.data[j].SNR[2];
+                    obs.data[j].LLI[1] = obs.data[j].LLI[2];
+                    obs.data[j].code[1] = obs.data[j].code[2];
+                    obs.data[j].L[1] = obs.data[j].L[2];
+                    obs.data[j].P[1] = obs.data[j].P[2];
+                    obs.data[j].D[1] = obs.data[j].D[2];
+                }
+                if (sys == SYS_GLO) {
+                    obs.data[j].SNR[1] = obs.data[j].SNR[6];
+                    obs.data[j].LLI[1] = obs.data[j].LLI[6];
+                    obs.data[j].code[1] = obs.data[j].code[6];
+                    obs.data[j].L[1] = obs.data[j].L[6];
+                    obs.data[j].P[1] = obs.data[j].P[6];
+                    obs.data[j].D[1] = obs.data[j].D[6];
+                }
+            }
+
             /* rtk positioning */
             rtksvrlock(svr);
             rtkpos(ctx, &svr->rtk, obs.data, obs.n, &svr->nav);
