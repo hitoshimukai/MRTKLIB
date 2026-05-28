@@ -103,10 +103,10 @@ extern int miono_get_corr(const double* rr, nav_t* nav);
 #define NX(opt) (NR(opt) + NB(opt))
 
 /* state variable index */
-#define II(s, opt) (NP(opt) + (s) - 1)                     /* ionos (s:satellite no) */
+#define II(s, opt) (NP(opt) + (s)-1)                       /* ionos (s:satellite no) */
 #define IT(r, opt) (NP(opt) + NI(opt) + NT(opt) / 2 * (r)) /* tropos (r:0=rov,1:ref) */
 #define IL(f, opt) (NP(opt) + NI(opt) + NT(opt) + (f))     /* receiver h/w bias */
-#define IB(s, f, opt) (NR(opt) + MAXSAT * (f) + (s) - 1)   /* phase bias (s:satno,f:freq) */
+#define IB(s, f, opt) (NR(opt) + MAXSAT * (f) + (s)-1)     /* phase bias (s:satno,f:freq) */
 
 /* polynomial coefficients for adaptive AR ratio threshold based on sat-pair count
    (fitted to LAMBDA reliability curves from TU Delft; valid for 1–50 pairs) */
@@ -2685,6 +2685,8 @@ extern int rtkpos(mrtk_ctx_t* ctx, rtk_t* rtk, const obsd_t* obs, int n, nav_t* 
     int i, nu, nr[2] = {0};
     char msg[128] = "";
 
+    static obsd_t pppobs[MAXOBS];
+
     trace(ctx, 3, "rtkpos  : time=%s n=%d\n", time_str(obs[0].time, 3), n);
 
     /* set base station position */
@@ -2718,14 +2720,48 @@ extern int rtkpos(mrtk_ctx_t* ctx, rtk_t* rtk, const obsd_t* obs, int n, nav_t* 
         if (sppopt.mode == PMODE_PPP_RTK || sppopt.mode == PMODE_VRS_RTK) {
             sppopt.sateph = EPHOPT_BRDC;
         }
-        if (!pntpos(ctx, obs, nu, nav, &sppopt, &rtk->sol, NULL, rtk->ssat, msg)) {
-            errmsg(rtk, "point pos error (%s)\n", msg);
 
-            if (!rtk->opt.dynamics) {
-                trace(ctx, 4, "obs=\n");
-                traceobs(ctx, 4, obs, n);
-                outsolstat(rtk);
-                return 0;
+        if (opt->mode >= PMODE_PPP_KINEMA) {
+            memcpy(pppobs, obs, sizeof(obsd_t) * nu);
+            for (int j = 0; j < n; j++) {
+                int sys = satsys(obs[j].sat, NULL);
+                if (sys == SYS_GAL || sys == SYS_QZS) {
+                    pppobs[j].SNR[1] = obs[j].SNR[2];
+                    pppobs[j].LLI[1] = obs[j].LLI[2];
+                    pppobs[j].code[1] = obs[j].code[2];
+                    pppobs[j].L[1] = obs[j].L[2];
+                    pppobs[j].P[1] = obs[j].P[2];
+                    pppobs[j].D[1] = obs[j].D[2];
+                }
+                if (sys == SYS_GLO) {
+                    pppobs[j].SNR[1] = obs[j].SNR[6];
+                    pppobs[j].LLI[1] = obs[j].LLI[6];
+                    pppobs[j].code[1] = obs[j].code[6];
+                    pppobs[j].L[1] = obs[j].L[6];
+                    pppobs[j].P[1] = obs[j].P[6];
+                    pppobs[j].D[1] = obs[j].D[6];
+                }
+            }
+            if (!pntpos(ctx, pppobs, nu, nav, &sppopt, &rtk->sol, NULL, rtk->ssat, msg)) {
+                errmsg(rtk, "point pos error (%s)\n", msg);
+
+                if (!rtk->opt.dynamics) {
+                    trace(ctx, 4, "obs=\n");
+                    traceobs(ctx, 4, obs, n);
+                    outsolstat(rtk);
+                    return 0;
+                }
+            }
+        } else {
+            if (!pntpos(ctx, obs, nu, nav, &sppopt, &rtk->sol, NULL, rtk->ssat, msg)) {
+                errmsg(rtk, "point pos error (%s)\n", msg);
+
+                if (!rtk->opt.dynamics) {
+                    trace(ctx, 4, "obs=\n");
+                    traceobs(ctx, 4, obs, n);
+                    outsolstat(rtk);
+                    return 0;
+                }
             }
         }
     }
@@ -2794,7 +2830,8 @@ extern int rtkpos(mrtk_ctx_t* ctx, rtk_t* rtk, const obsd_t* obs, int n, nav_t* 
         miono_get_corr(rtk->sol.rr, nav);
         trace(ctx, 4, "obs=\n");
         traceobs(ctx, 4, obs, n);
-        pppos(ctx, rtk, obs, nu, nav);
+        // pppos(ctx, rtk, obs, nu, nav);
+        pppos(ctx, rtk, pppobs, nu, nav);
         outsolstat(rtk);
         return 1;
     }
