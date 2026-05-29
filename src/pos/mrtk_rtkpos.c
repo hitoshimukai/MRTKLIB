@@ -2326,6 +2326,8 @@ static void signal_sel_ppp(obsd_t* pppobs, const nav_t* nav, const prcopt_t* opt
             case SYS_GPS:
                 if (opt->pppsig[0] == 1) { /* L1/L5 */
                     sigtype = 2;
+                } else if (opt->pppsig[0] == 2) { /* L1C/L2C */
+                    sigtype = 1;
                 }
                 break;
             case SYS_GAL:
