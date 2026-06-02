@@ -532,11 +532,14 @@ static int startsvr(vt_t* vt) {
     }
 
     /* #184: apply PPP signal selection in the real-time path, mirroring the
-     * post-processing path (rnx2rtkp.c). Without this, the obsdef tables keep
-     * their defaults and the madocalib PPP engine only forms iono-free pairs
-     * for GPS, silently dropping Galileo/QZSS/GLONASS/BeiDou. As in post, IGS
+     * post-processing path (rnx2rtkp.c). apply_pppsig() reshapes the obsdef
+     * tables (GPS/QZS/GAL/BDS) that every receiver decoder consults via
+     * code2freq_idx(); without it a non-GPS 2nd band that differs from the
+     * default slot (e.g. GAL E5b, BDS B2I) is never mapped, so the madocalib
+     * PPP engine can only form the iono-free pair for GPS. As in post, IGS
      * precise-product PPP skips it (#135) so the receiver's actual 2nd band
-     * survives. */
+     * survives. (GLONASS is unaffected: apply_pppsig() does not touch it and
+     * its default G1/G2 obsdef already maps correctly.) */
     if (prcopt.correction != CORR_IGS) {
         apply_pppsig(prcopt.pppsig);
     }
