@@ -539,9 +539,18 @@ static int startsvr(vt_t* vt) {
      * PPP engine can only form the iono-free pair for GPS. As in post, IGS
      * precise-product PPP skips it (#135) so the receiver's actual 2nd band
      * survives. (GLONASS is unaffected: apply_pppsig() does not touch it and
-     * its default G1/G2 obsdef already maps correctly.) */
-    if (prcopt.correction != CORR_IGS) {
-        apply_pppsig(prcopt.pppsig);
+     * its default G1/G2 obsdef already maps correctly.)
+     *
+     * #186: reset to the pristine defaults first so a restart (the rtkrcv shell
+     * can `load` a new config and `restart` in the same process) that changes
+     * the correction or signal selection — including switching to correction=igs,
+     * which skips apply_pppsig — cannot inherit a previously trimmed obsdef.
+     * sigcfg-configured obsdef (pos1-signals) is left untouched. */
+    if (!prcopt.sigcfg_set) {
+        reset_obsdef();
+        if (prcopt.correction != CORR_IGS) {
+            apply_pppsig(prcopt.pppsig);
+        }
     }
 
     /* read start commads from command files */
