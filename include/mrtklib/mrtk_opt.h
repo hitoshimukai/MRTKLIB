@@ -306,12 +306,21 @@ typedef struct prcopt_t {         /* processing options type */
 
     /* PPP-RTK/VRS a-priori SPP seed quality (appended for ABI stability).
      * When set, the per-epoch single-point seed (pntpos) used to (re)initialize
-     * the CLAS/VRS filter applies the proven v0.6.10 SPP profile (C/N0 weighting
-     * + IGG-III robust + TDCP jump-reject) on its PRIVATE option copy only, so
-     * the CLAS measurement model (which reuses err[5]/err[6] as iono/trop terms)
-     * is left untouched. Default 0: bit-identical to prior seed behaviour. */
-    int enhanced_spp_seed; /* 0:off, 1:apply v0.6.10 SPP profile to the a-priori seed */
+     * the CLAS/VRS filter applies a v0.6.10 SPP profile (see SEEDENH_??? below) on
+     * its PRIVATE option copy only, so the CLAS measurement model (which reuses
+     * err[5]/err[6] as iono/trop terms) is left untouched. Default 0 (off):
+     * bit-identical to prior seed behaviour. */
+    int enhanced_spp_seed; /* a-priori SPP seed profile (SEEDENH_???) */
 } prcopt_t;
+
+/* enhanced_spp_seed profiles (applied to the PPP-RTK/VRS a-priori SPP seed only).
+ * BASE (C/N0 + TDCP) is the recommended "on" setting. ROBUST adds IGG-III robust
+ * weighting: it helps in open sky but, in deep urban canyons, perturbs the seed
+ * enough to trip the filter into fix-and-hold mis-fixes, so it is an explicit
+ * operator opt-in, not the default. See docs/design/spp-accuracy.md. */
+#define SEEDENH_OFF 0    /* off: seed bit-identical to prior behaviour */
+#define SEEDENH_BASE 1   /* C/N0 weighting + TDCP jump-reject (recommended) */
+#define SEEDENH_ROBUST 2 /* BASE + IGG-III robust (open-sky opt-in) */
 
 /*============================================================================
  * Solution Options Type
