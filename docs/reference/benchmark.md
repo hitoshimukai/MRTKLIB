@@ -589,7 +589,7 @@ horizontal error over fixed epochs.
 - **C/N0 weighting drives the p95 (tail) improvement**; the seed-only TDCP
   jump-reject guards against wild SPP jumps but is neutral on this data.
 - **IGG-III robust is opt-in, not default.** It lifts the mean fix rate a further
-  +1.0 pp and helps opener runs, but on the deep-urban-canyon run (tokyo_run3) it
+  +1.0 pp and helps open-sky runs, but on the deep-urban-canyon run (tokyo_run3) it
   shifts the seed enough to trip fix-and-hold into sustained mis-fixes
   (mis-fixes 5 → 71, worst fixed error 4.4 m → 12 m). The harm is a filter-
   coupling effect invisible to seed-local diagnostics and could not be reliably
@@ -599,6 +599,11 @@ horizontal error over fixed epochs.
   regression cases run byte-close to the off baseline — deltas sub-cm RMS,
   inside the existing test tolerances — so the default is safe for the static
   use case while helping the kinematic one.
+- **Applies to real-time too.** Real-time PPP-RTK/VRS-RTK (`mrtk run`) calls the
+  same `rtkpos()` seed path, so the default profile is active there as well —
+  arguably where it matters most (stream gaps and slips make real-time the
+  reset-prone regime the seed targets). The numbers above are post-processing;
+  the real-time effect has not yet been separately benchmarked.
 
 ---
 

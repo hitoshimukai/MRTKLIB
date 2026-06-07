@@ -779,7 +779,7 @@ the existing test tolerances; one VRS case improves (fix 98.9 % → 99.9 %).
 
 ### 11.4 Why robust is opt-in, not default — and why it cannot be auto-gated
 
-Adding `robust` raises the aggregate fix rate (+1.0 pp more) and helps opener
+Adding `robust` raises the aggregate fix rate (+1.0 pp more) and helps open-sky
 runs markedly (nagoya_run2 fixed-RMS 2.00 m → 1.12 m, worst fixed error 24.8 m →
 14.8 m). **But on the deep-urban-canyon run (tokyo_run3) it is destructive**:
 mis-fixes 5 → 71, worst fixed error 4.4 m → 12 m, in sustained ~15-epoch clusters.
@@ -809,3 +809,14 @@ SPP-fallback regime (tokyo_run3 = 82 % SPP fallback vs nagoya_run2 = 11 %), i.e.
 how reset-prone the filter is — not with geometry (tokyo_run3 has the *most*
 satellites). So robust is left as an explicit operator opt-in: use it where the
 environment is open-sky, omit it in dense urban canyons.
+
+### 11.5 Real-time applicability
+
+Real-time PPP-RTK/VRS-RTK (`mrtk run`) runs the same `rtkpos()` and the same seed
+block (`mrtk_rtksvr.c` calls `rtkpos(&svr->rtk, ...)`), with the loaded `prcopt`
+propagated to `svr->rtk.opt` via `rtkinit` in `rtksvrstart`, so the default
+profile is active in real time as well. The persistent `svr->rtk.ssat` carries
+the TDCP phase history across the stream loop. Real-time is arguably where the
+seed matters most — stream gaps and cycle slips make it the reset-prone regime
+the enhancement targets — but the benchmark numbers in this document are
+post-processing; the real-time effect has not yet been separately measured.
