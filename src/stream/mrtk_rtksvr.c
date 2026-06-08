@@ -481,20 +481,18 @@ static int decoderaw(rtksvr_t* svr, int index) {
             int k, ch, cret, max_cret = 0;
 
             if (svr->format[index] == STRFMT_UBX || svr->format[index] == STRFMT_SEPT) {
-                /* UBX/SBF: both L6 channels arrive interleaved in one stream.
-                 * Single-channel CLAS (l6mrg=0) only ever reads ssr_ch[0], so
-                 * route every frame to ch 0 — this keeps corrections flowing
-                 * across a QZS satellite handover (PRN change), see #197.
-                 * Dual-channel CLAS (l6mrg!=0) demuxes by CLAS Transmit Pattern
-                 * ID (bits 2-1 of the L6 message-ID byte buff[5], i.e. the byte
-                 * after the 4-byte preamble and PRN), not by PRN, so each of the
-                 * two augmentation patterns locks to its own channel and a
-                 * handover within a pattern stays on the same channel. */
-                if (!svr->rtk.opt.l6mrg) {
-                    ch = 0;
-                } else {
-                    int ptn = (svr->rtcm[index].buff[5] & 0x06) >> 1;
-                    ch = clas_pattern_to_ch(svr->clas, ptn);
+                /* UBX/SBF: a multi-channel L6 receiver (e.g. u-blox D9C, 2ch)
+                 * interleaves L6D frames from several QZS PRNs in one stream.
+                 * Route each frame to a CLAS channel keyed by transmit pattern,
+                 * keeping each channel locked to a single active PRN so subframe
+                 * assembly stays coherent across a satellite handover (#197).
+                 * ch<0 means the frame is from a non-active PRN — drop it so the
+                 * locked channel's subframe stream is not corrupted by mixing. */
+                int prn = svr->rtcm[index].buff[4];
+                int ptn = (svr->rtcm[index].buff[5] & 0x06) >> 1;
+                ch = clas_route_l6frame(svr->clas, prn, ptn, svr->rtk.opt.l6mrg, svr->raw[0].time);
+                if (ch < 0) {
+                    continue;
                 }
             } else {
                 /* L6E: use stream index mapping (separate streams per channel) */

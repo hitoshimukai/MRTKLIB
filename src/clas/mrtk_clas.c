@@ -78,6 +78,8 @@ extern int clas_ctx_init(clas_ctx_t* ctx) {
         ctx->l6facility[i] = -1;
         ctx->l6delivery[i] = -1;
         ctx->l6pattern[i] = -1;
+        ctx->l6lock_time[i].time = 0;
+        ctx->l6lock_time[i].sec = 0.0;
     }
     ctx->initialized = 1;
     return 0;
@@ -2860,25 +2862,61 @@ extern int clas_get_correct_fac(int msgid) {
     }
 }
 
-extern int clas_pattern_to_ch(clas_ctx_t* ctx, int ptn) {
-    int ch;
+extern int clas_route_l6frame(clas_ctx_t* ctx, int prn, int ptn, int l6mrg, gtime_t now) {
+    int ch, target, locked_prn, stale;
+    int nch = l6mrg ? CLAS_CH_NUM : 1;
 
-    /* return the channel already locked to this pattern */
-    for (ch = 0; ch < CLAS_CH_NUM; ch++) {
-        if (ctx->l6pattern[ch] == ptn) {
+    /* 1. already the active source on some channel → accept and refresh */
+    for (ch = 0; ch < nch; ch++) {
+        if (ctx->l6delivery[ch] == prn) {
+            ctx->l6lock_time[ch] = now;
             return ch;
         }
     }
-    /* otherwise lock this pattern to the first free channel */
-    for (ch = 0; ch < CLAS_CH_NUM; ch++) {
-        if (ctx->l6pattern[ch] < 0) {
-            ctx->l6pattern[ch] = ptn;
-            trace(NULL, 2, "L6 pattern lock: ch=%d pattern=%d\n", ch, ptn);
-            return ch;
+
+    /* 2. pick the target channel for this frame.
+     *    single channel: ch 0 carries whatever pattern is active.
+     *    dual channel:   one channel per pattern (lock pattern→channel). */
+    if (!l6mrg) {
+        target = 0;
+    } else {
+        target = -1;
+        for (ch = 0; ch < nch; ch++) {
+            if (ctx->l6pattern[ch] == ptn) {
+                target = ch;
+                break;
+            }
+        }
+        if (target < 0) { /* assign this pattern to a free channel */
+            for (ch = 0; ch < nch; ch++) {
+                if (ctx->l6pattern[ch] < 0) {
+                    target = ch;
+                    break;
+                }
+            }
+        }
+        if (target < 0) {
+            return -1; /* >CLAS_CH_NUM patterns (not expected): drop */
         }
     }
-    /* all channels taken (>2 patterns is not expected): fall back to ch 0 */
-    return 0;
+
+    /* 3. (re)lock the target channel to this PRN only if it is free or its
+     *    current active source has gone silent past the handover timeout;
+     *    otherwise drop to keep the channel's subframe stream coherent. */
+    locked_prn = ctx->l6delivery[target];
+    stale = (ctx->l6lock_time[target].time == 0) || (timediff(now, ctx->l6lock_time[target]) > CLAS_L6_RELOCK_TIMEOUT);
+
+    if (locked_prn < 0 || stale) {
+        if (locked_prn != prn || ctx->l6pattern[target] != ptn) {
+            trace(NULL, 2, "L6 lock: ch=%d prn=%d pattern=%d (was prn=%d pattern=%d)\n", target, prn, ptn, locked_prn,
+                  ctx->l6pattern[target]);
+        }
+        ctx->l6delivery[target] = prn;
+        ctx->l6pattern[target] = ptn;
+        ctx->l6lock_time[target] = now;
+        return target;
+    }
+    return -1; /* channel busy with a different, still-active PRN → drop */
 }
 
 extern int clas_input_cssr(clas_ctx_t* ctx, uint8_t data, int ch) {
