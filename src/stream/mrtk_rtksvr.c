@@ -486,7 +486,8 @@ static int decoderaw(rtksvr_t* svr, int index) {
                  * route every frame to ch 0 — this keeps corrections flowing
                  * across a QZS satellite handover (PRN change), see #197.
                  * Dual-channel CLAS (l6mrg!=0) demuxes by CLAS Transmit Pattern
-                 * ID (L6 header byte 5, bits 2-1), not by PRN, so each of the
+                 * ID (bits 2-1 of the L6 message-ID byte buff[5], i.e. the byte
+                 * after the 4-byte preamble and PRN), not by PRN, so each of the
                  * two augmentation patterns locks to its own channel and a
                  * handover within a pattern stays on the same channel. */
                 if (!svr->rtk.opt.l6mrg) {

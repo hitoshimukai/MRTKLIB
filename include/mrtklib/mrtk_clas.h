@@ -762,8 +762,10 @@ int clas_get_correct_fac(int msgid);
  * the same channel, so corrections are not stranded on an unread channel.
  *
  * @param[in,out] ctx  CLAS context (holds the per-channel pattern lock)
- * @param[in]     ptn  CLAS Transmit Pattern ID, extracted from L6 header
- *                     byte 5 as `(byte5 & 0x06) >> 1`
+ * @param[in]     ptn  CLAS Transmit Pattern ID, extracted from the L6
+ *                     message-ID byte (`buff[5]`, the byte after the 4-byte
+ *                     preamble and PRN; same byte the decoder reads as
+ *                     `msgid`) as `(msgid & 0x06) >> 1`
  * @return L6 channel index (0..CLAS_CH_NUM-1)
  */
 int clas_pattern_to_ch(clas_ctx_t* ctx, int ptn);
