@@ -618,6 +618,13 @@ typedef struct {
      * within the same pattern) keeps feeding the same channel. */
     int l6pattern[CLAS_CH_NUM];
 
+    /* Obs time when each channel last accepted an L6 frame from its active
+     * source PRN (l6delivery[ch]).  The demux drops frames from any other PRN
+     * to keep each channel's subframe assembly coherent, and re-locks the
+     * channel to a new PRN/pattern once the active source has been silent
+     * longer than CLAS_L6_RELOCK_TIMEOUT (QZS handover recovery). */
+    gtime_t l6lock_time[CLAS_CH_NUM];
+
     /* nav_t update flag (signals positioning engine to refresh) */
     int updateac;
 
@@ -753,22 +760,35 @@ void clas_check_grid_status(clas_ctx_t* ctx, const clas_corr_t* corr, int ch);
  */
 int clas_get_correct_fac(int msgid);
 
+/** Seconds an L6 channel's active source PRN may be silent before the demux
+ *  re-locks the channel to a newly arriving PRN/pattern (QZS handover). */
+#define CLAS_L6_RELOCK_TIMEOUT 10.0
+
 /**
- * @brief Map a CLAS Transmit Pattern ID to an L6 channel index.
+ * @brief Route one interleaved L6D frame to a CLAS channel (or drop it).
  *
- * Routes L6D frames by augmentation pattern rather than broadcasting PRN.
- * The first pattern seen locks to ch 0; the other pattern locks to ch 1.
- * A QZS satellite handover that changes the PRN but not the pattern keeps
- * the same channel, so corrections are not stranded on an unread channel.
+ * A single UBX/SBF stream from a multi-channel L6 receiver (e.g. u-blox D9C,
+ * and future receivers with more channels) carries L6D frames from several
+ * QZS PRNs interleaved.  Each CLAS channel decodes one PRN's subframe sequence
+ * statefully, so frames from different PRNs must NOT be mixed into the same
+ * channel.  This router keeps each channel locked to a single active source
+ * PRN and drops frames from any other PRN, re-locking only after the active
+ * source has been silent for CLAS_L6_RELOCK_TIMEOUT seconds.
  *
- * @param[in,out] ctx  CLAS context (holds the per-channel pattern lock)
- * @param[in]     ptn  CLAS Transmit Pattern ID, extracted from the L6
- *                     message-ID byte (`buff[5]`, the byte after the 4-byte
- *                     preamble and PRN; same byte the decoder reads as
- *                     `msgid`) as `(msgid & 0x06) >> 1`
- * @return L6 channel index (0..CLAS_CH_NUM-1)
+ * Channels are keyed by CLAS Transmit Pattern ID (IS-QZSS-L6 §4.1.1.2): there
+ * are only two patterns, so two channels suffice regardless of how many PRNs
+ * the receiver tracks.  Single-channel CLAS (`l6mrg=0`) uses ch 0 only and
+ * collapses to whichever pattern is currently active; dual-channel CLAS
+ * (`l6mrg!=0`) maps each pattern to its own channel for merging.
+ *
+ * @param[in,out] ctx    CLAS context (holds per-channel PRN/pattern/time lock)
+ * @param[in]     prn    Broadcasting QZS PRN (L6 frame byte `buff[4]`)
+ * @param[in]     ptn    CLAS Transmit Pattern ID, `(buff[5] & 0x06) >> 1`
+ * @param[in]     l6mrg  L6 merge mode (0:single channel, !=0:dual channel)
+ * @param[in]     now    Current observation time (GPST) used for the timeout
+ * @return Channel index (0..CLAS_CH_NUM-1) to feed, or -1 to drop the frame.
  */
-int clas_pattern_to_ch(clas_ctx_t* ctx, int ptn);
+int clas_route_l6frame(clas_ctx_t* ctx, int prn, int ptn, int l6mrg, gtime_t now);
 
 /*============================================================================
  * Grid Interpolation (mrtk_clas_grid.c)
