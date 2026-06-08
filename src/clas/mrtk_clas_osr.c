@@ -1348,14 +1348,22 @@ int clas_osr_zdres(const obsd_t* obs, int n, const double* rs, const double* dts
                     dcpc = osr[i].orb - osr[i].clk + osr[i].CPC[j] - osr_ctx->cpctmp[j * MAXSAT + sat - 1];
                     if (dcpc >= 95.0 * lam[f] && dcpc < 105.0 * lam[f]) {
                         osr_ctx->pbias_ofst[j * MAXSAT + sat - 1] -= 100.0;
-                        x[IB_RTK(sat, f, opt)] -= 100.0;
+                        /* PPP-RTK (y != NULL): correct the ambiguity filter state.
+                         * VRS/OSR (y == NULL): rtk->x has no ambiguity slots, so
+                         * the offset is instead applied to the emitted carrier
+                         * phase in clas_ssr2osr() — see upstream cssr2osr.c L342. */
+                        if (y) {
+                            x[IB_RTK(sat, f, opt)] -= 100.0;
+                        }
                         trace(NULL, 2,
                               "pbias slip detected t=%s sat=%2d f=%1d "
                               "dcpc[cycle]=%.1f\n",
                               time_str(obs_copy[i].time, 0), sat, f, lam[f] > 0.0 ? dcpc / lam[f] : 0.0);
                     } else if (dcpc <= -95.0 * lam[f] && dcpc > -105.0 * lam[f]) {
                         osr_ctx->pbias_ofst[j * MAXSAT + sat - 1] += 100.0;
-                        x[IB_RTK(sat, f, opt)] += 100.0;
+                        if (y) {
+                            x[IB_RTK(sat, f, opt)] += 100.0;
+                        }
                         trace(NULL, 2,
                               "pbias slip detected t=%s sat=%2d f=%1d "
                               "dcpc[cycle]=%.1f\n",
@@ -1655,7 +1663,16 @@ int clas_ssr2osr(rtk_t* rtk, obsd_t* obs, int n, nav_t* nav, clas_osrd_t* osr, i
                     continue;
                 }
                 obs[ko].P[j] = osr[i].p[j];
-                obs[ko].L[j] = (lam_v[f] > 0.0) ? osr[i].c[j] / lam_v[f] : 0.0;
+                /* Apply the ±100-cycle phase-bias-wrap repair to the emitted
+                 * carrier phase. clas_osr_zdres() detects the wrap and stores
+                 * the cumulative offset in osr_ctx->pbias_ofst (indexed by
+                 * signal j), but in VRS/OSR mode it has no ambiguity filter
+                 * state to correct. Without this term the CLAS phase-bias wrap
+                 * leaks ~100 cycles (~19 m at L1) into the VRS phase, forcing a
+                 * cycle slip on the rover. Mirrors upstream cssr2osr.c L342
+                 * (obs[k].L[j] += pbias_ofst[...]). */
+                obs[ko].L[j] =
+                    (lam_v[f] > 0.0) ? osr[i].c[j] / lam_v[f] + osr_ctx.pbias_ofst[j * MAXSAT + sati - 1] : 0.0;
                 obs[ko].LLI[j] = (rtk->ssat[sati - 1].slip[j] & 1) ? 1 : 0;
                 /* SNR model: elevation-dependent or fixed (via posopt[11]).
                  * Note: posopt[11] is the reserved slot used by cssr2rtcm3
