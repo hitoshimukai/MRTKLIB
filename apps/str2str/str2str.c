@@ -380,6 +380,9 @@ int mrtk_relay(int argc, char** argv) {
     /* start stream server */
     if (!strsvrstart(&strsvr, opts, types, paths, logs, conv, cmds, cmds_periodic, stapos)) {
         fprintf(stderr, "stream server start error\n");
+        for (i = 0; i < n; i++) {
+            strconvfree(conv[i]);
+        }
         if (trlevel > 0) {
             traceclose(NULL);
             g_mrtk_ctx = NULL;
