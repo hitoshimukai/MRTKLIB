@@ -111,7 +111,11 @@ Configure the mosaic-G5 using RxTools (the mosaic-G5 module does not have a Web 
     <div style="text-align: center;"><img src="../images/mosaic-g5/rx_control.png" style="max-width: 520px; width: 100%;"></div>
 
 4. **Set SBF output**: Go to `Communication` > `Output Settings` > `SBF Output` and configure `Stream 1` as follows:
-    - Ports: `USB2`
+    - Ports: the single bidirectional COM port (e.g. `COM1` / `USB1`) — the
+      same port you set `RTCMv3` input on in step 7, so one port carries SBF
+      out and RTCM3 in. (On a multi-endpoint USB cable you may instead place
+      SBF on a second endpoint and run two ports; the single-port form is
+      simpler and is what the commands below assume.)
     - Off: unchecked
     - Support: checked
     - **Interval: `1 sec`** (CLAS corrections update every 5 s and PVT can be paced at 1 Hz; 1 Hz is sufficient for static and most kinematic use cases. For high-rate dynamics, set `100 msec` instead.)
@@ -165,10 +169,11 @@ Configure the mosaic-G5 using RxTools (the mosaic-G5 module does not have a Web 
 
     Click `Apply`, then `OK` to close.
 
-7. **Configure the RTCM3 input port** (Approach 1 / VRS only): Identify the COM
-    port that the host will use to send RTCM3 corrections to the receiver
-    (e.g. `COM1`, `COM2`, `USB1`), and set its **Input Type** explicitly to
-    `RTCMv3`.
+7. **Configure the RTCM3 input port** (Approach 1 / VRS only): On the single
+    bidirectional setup this is the **same COM port that outputs SBF** (the
+    one `mrtk relay -in` connects to, e.g. `COM1` / `USB1`). Set its **Input
+    Type** explicitly to `RTCMv3` — output and input coexist on one port, as
+    the `gdio` line below shows (`RTCMv3` in, `SBF+NMEA` out).
 
     Via RxControl GUI: `Communication` > `Input/Output Selection`, choose the
     target port, set `Input Type` to `RTCMv3`, click `Apply`.
@@ -201,7 +206,7 @@ Configure the mosaic-G5 using RxTools (the mosaic-G5 module does not have a Web 
         the **PVT mode field** in `PVTGeodetic`, not just the scatter plot.
 
     Also confirm that the COM port baud rate matches the host side
-    (`mrtk cssr2rtcm3 -out serial://...:115200` ⇒ `setComSettings, COM1, baud115200`):
+    (`mrtk relay -in serial://ttyACM0:115200` ⇒ `setComSettings, COM1, baud115200`):
 
     ```
     gcs
@@ -224,63 +229,90 @@ Configure the mosaic-G5 using RxTools (the mosaic-G5 module does not have a Web 
 
 ## Running — Approach 1: VRS
 
-The VRS approach requires two processes running simultaneously: `mrtk relay`
-to bridge the serial connection, and `mrtk cssr2rtcm3` to convert CLAS
+The VRS approach runs two processes simultaneously: `mrtk relay` to bridge
+the receiver's serial connection, and `mrtk cssr2rtcm3` to convert CLAS
 corrections to RTCM3.
 
-| Port                         | USB  | Usage                    |
-| ---------------------------- | ---- | ------------------------ |
-| `/dev/*.usbmodem01000124301` | USB1 | RTCM3 input to receiver  |
-| `/dev/*.usbmodem01000124303` | USB2 | SBF output from receiver |
+Both directions — SBF out of the receiver and RTCM3 back into it — travel
+over a **single bidirectional serial port**. `mrtk relay` serves the SBF
+stream on a TCP server port and uses its `-b` (relay-back) option to feed
+the RTCM3 it receives on that port back into the receiver's serial input.
+Only one COM port on the receiver is needed, so the same setup runs on a
+single-UART field SBC (e.g. a Raspberry Pi driving a mosaic-G5 P3 over a
+3.3 V TTL header) and on a multi-endpoint USB connection (issue #117).
+
+| Stream      | Direction       | Path                                  |
+| ----------- | --------------- | ------------------------------------- |
+| SBF         | receiver → host | serial in → TCP server                |
+| RTCM3 (VRS) | host → receiver | TCP server → `relay -b` → serial in   |
 
 !!! note
-    Serial port numbers are device-specific and will differ on your system.
+    Serial device names are platform-specific — `/dev/tty.usbmodem…` on
+    macOS, `/dev/ttyACM0` / `/dev/ttyUSB0` / `/dev/ttyS0` on Linux SBCs —
+    and will differ on your system.
 
 ### Step 1: Start `mrtk relay`
 
-`mrtk relay` connects to the mosaic-G5 serial port, exposes the SBF stream
-on a TCP server port, and relays RTCM3 corrections back to the receiver
-using the `-b` (relay-back) option.
+`mrtk relay` connects to the mosaic-G5 serial port, serves the SBF stream on
+a TCP server port, and relays the RTCM3 it receives on that port back to the
+receiver via the `-b` (relay-back) option.
 
 ```bash
-# Terminal 1: Bridge serial <-> TCP
+# Terminal 1: bridge serial <-> TCP, relay RTCM3 back to the receiver
 mrtk relay \
-  -in serial://tty.usbmodem01000124303:115200#sbf \
-  -out tcpsvr://:9000#sbf \
-  -out file://mosaic-g5.sbf#sbf \
+  -in serial://ttyACM0:115200 \
+  -b 1 \
+  -out tcpsvr://:9000 \
+  -out file://mosaic-g5_%Y%m%d%h.sbf::S=1h
 ```
 
-- `-in serial://tty.usbmodem01000124303:115200#sbf` — read SBF from the mosaic-G5 `USB2` serial port
-- `-out tcpsvr://:9000#sbf` — serve the SBF stream on TCP port 9000 (for `mrtk cssr2rtcm3`)
-- `-out file://mosaic-g5.sbf#sbf` — log raw SBF data to file (optional, for post-analysis)
+- `-in serial://ttyACM0:115200` — read SBF from the mosaic-G5 serial port (COM1)
+- `-b 1` — relay data received on **output stream 1** (the TCP server below) back into the serial input. Streams are numbered from the input (stream 0), so `-b 1` is the first `-out`. This is what carries RTCM3 to the receiver over the same port.
+- `-out tcpsvr://:9000` — output stream 1: serve SBF on TCP 9000 and accept RTCM3 back from `mrtk cssr2rtcm3`
+- `-out file://mosaic-g5_%Y%m%d%h.sbf::S=1h` — output stream 2: log raw SBF, split hourly (optional, for post-analysis)
+
+!!! warning "Keep the TCP server as the first `-out`"
+    `-b 1` points at the first `-out`. Put `-out tcpsvr://…` before
+    `-out file://…` so the relay-back targets the TCP stream, not the log
+    file.
 
 ### Step 2: Start `mrtk cssr2rtcm3`
 
 `mrtk cssr2rtcm3` connects to the relay's TCP port, decodes CLAS CSSR from
-the SBF stream, and sends RTCM3 MSM7 corrections back through the same
-TCP connection.
+the SBF stream, and writes RTCM3 MSM7 corrections back to the **same TCP
+port**, where `mrtk relay -b` forwards them to the receiver.
 
 ```bash
-# Terminal 2: CSSR -> RTCM3 conversion
+# Terminal 2: CSSR -> RTCM3 conversion (RTCM3 returned over the TCP loopback)
 mrtk cssr2rtcm3 \
   -k conf/cssr2rtcm3.toml \
   -in sbf://tcpcli://localhost:9000 \
-  -out serial://cu.usbmodem01000124301
+  -out tcpcli://localhost:9000
 ```
 
-- `-in sbf://tcpcli://localhost:9000` — connect to relay and read SBF (single-stream mode: L6D, NAV, and PVT are all extracted from the same SBF stream)
-- `-out serial://cu.usbmodem01000124301` — send RTCM3 MSM7 corrections to the mosaic-G5 via `USB1`
+- `-in sbf://tcpcli://localhost:9000` — connect to the relay and read SBF (single-stream mode: L6D, NAV, and PVT are all extracted from the same SBF stream)
+- `-out tcpcli://localhost:9000` — send RTCM3 MSM7 back to the relay's TCP server; `mrtk relay -b 1` relays it into the receiver's serial input
 
-Once CLAS corrections converge (typically 1–2 minutes after startup), the
-mosaic-G5 receives the RTCM3 corrections and performs VRS-RTK positioning
-internally. The positioning result is available in the SBF output from
-the receiver (forwarded by `mrtk relay`).
+No second serial port is required: the RTCM3 return path is the relay's TCP
+loopback, not a separate COM port. Once the mosaic-G5 starts receiving valid
+RTCM3 (typically 1–2 minutes after corrections begin flowing — i.e. after
+CLAS convergence and broadcast-ephemeris collection), it performs VRS-RTK
+positioning internally. The result appears in the SBF output forwarded by
+`mrtk relay`; check the `PVTGeodetic` mode field for RTK Fixed.
 
-!!! warning "macOS: use `cu.*` instead of `tty.*` for serial output"
-    On macOS, `/dev/tty.*` devices wait for the DCD (Data Carrier Detect) signal
-    before completing the open, causing writes to block silently.
-    Always use `/dev/cu.*` for serial output to the receiver.
-    This does not affect serial input (`mrtk relay -in` reads correctly with either).
+!!! note "Validated single-port operation (#117)"
+    The single bidirectional-port topology above has been confirmed
+    end-to-end on a mosaic-G5: with `relay -b` returning RTCM3 over one
+    serial port, the receiver reaches and holds **RTK Fixed**. This is the
+    recommended setup; it removes the second COM port the earlier
+    two-endpoint configuration needed and so works on single-UART SBCs.
+
+!!! warning "macOS: the relay's serial port is bidirectional here"
+    With `relay -b`, the `mrtk relay -in serial://…` port now both reads SBF
+    **and** writes RTCM3 back. On macOS, `/dev/tty.*` devices wait for the
+    DCD (Data Carrier Detect) signal before completing the open, which can
+    block writes silently — use `/dev/cu.*` for the relay's serial port on
+    macOS. Linux `/dev/ttyACM*` / `/dev/ttyUSB*` are bidirectional as-is.
 
 ### Monitoring with `sbf_plot`
 
@@ -308,7 +340,7 @@ Add `-d 3` to `mrtk cssr2rtcm3` for detailed processing logs:
 mrtk cssr2rtcm3 \
   -k conf/cssr2rtcm3.toml \
   -in sbf://tcpcli://localhost:9000 \
-  -out serial://cu.usbmodem01000124301 \
+  -out tcpcli://localhost:9000 \
   -d 3
 ```
 
