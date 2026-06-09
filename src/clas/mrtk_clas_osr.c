@@ -1175,10 +1175,12 @@ int clas_osr_zdres(const obsd_t* obs, int n, const double* rs, const double* dts
          * slot ordering matches the VRS fill in clas_ssr2osr(), which emits
          * obs[].code[j] = smode[j] and reads osr[].c[j] by the same index.
          *
-         * This MUST be unconditional. The dummy-obs buffer is reused across
-         * epochs, so obs_copy[].code[j] can hold a stale non-zero code from a
-         * previous epoch (or a different satellite). A `code[j]==0` guard then
-         * leaves that stale code in place, desyncing the slot order from smode:
+         * This MUST be unconditional. VRS/OSR callers (e.g. cssr2rtcm3) reuse
+         * one input obs buffer across epochs and that buffer is copied into
+         * obs_copy at the top of this function, so obs_copy[].code[j] can carry
+         * a stale non-zero code from a previous epoch (or a different
+         * satellite). A `code[j]==0` guard then leaves that stale code in
+         * place, desyncing the slot order from smode:
          * zdres computes osr[].c[] for one signal while the fill reads it as
          * another, leaking a stale carrier value (observed as ~1153 m E5a
          * glitches on E33 when the receiver-tracked signal set differs from the
