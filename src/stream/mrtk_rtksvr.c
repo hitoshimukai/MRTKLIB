@@ -490,7 +490,16 @@ static int decoderaw(rtksvr_t* svr, int index) {
                  * locked channel's subframe stream is not corrupted by mixing. */
                 int prn = svr->rtcm[index].buff[4];
                 int ptn = (svr->rtcm[index].buff[5] & 0x06) >> 1;
-                ch = clas_route_l6frame(svr->clas, prn, ptn, svr->rtk.opt.l6mrg, svr->raw[0].time);
+                /* current rover observation time drives the demux re-lock
+                 * timeout. The rover decodes into raw[0] (receiver-raw formats)
+                 * or rtcm[0] (RTCM2/3); pick whichever is fresher so the clock
+                 * advances for RTCM3 rovers too — otherwise the timeout never
+                 * fires and a set satellite's stale lock is never released (#205). */
+                gtime_t now = svr->raw[0].time;
+                if (!now.time || (svr->rtcm[0].time.time && timediff(svr->rtcm[0].time, now) > 0)) {
+                    now = svr->rtcm[0].time;
+                }
+                ch = clas_route_l6frame(svr->clas, prn, ptn, svr->rtk.opt.l6mrg, now);
                 if (ch < 0) {
                     continue;
                 }
