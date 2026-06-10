@@ -1649,6 +1649,26 @@ int clas_ssr2osr(rtk_t* rtk, obsd_t* obs, int n, nav_t* nav, clas_osrd_t* osr, i
             if (osr[i].sat <= 0) {
                 continue;
             }
+
+            /* Skip satellites with no usable observation on any signal. When
+             * CLAS provides no valid code/phase bias for a satellite (or it is
+             * stale), every signal comes out P = L = 0. The MSM encoder then
+             * writes such a satellite with rough range 255 (invalid): a dead
+             * entry that occupies the satellite mask but carries no usable
+             * range or carrier. The rover cannot position with it and may let
+             * it disturb satellite selection, so do not advertise it at all. */
+            {
+                int any_valid = 0;
+                for (j = 0; j < nf; j++) {
+                    if (osr[i].p[j] != 0.0 || osr[i].c[j] != 0.0) {
+                        any_valid = 1;
+                        break;
+                    }
+                }
+                if (!any_valid) {
+                    continue;
+                }
+            }
             sys_v = satsys(sati, NULL);
 
             obs[ko].time = obs[i].time;
