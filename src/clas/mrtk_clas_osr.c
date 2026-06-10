@@ -1171,15 +1171,31 @@ int clas_osr_zdres(const obsd_t* obs, int n, const double* rs, const double* dts
         sys = satsys(sat, &prn);
         osr[i].sat = sat;
 
-        /* VRS mode (y==NULL): pre-populate obs codes from CLAS smode
-         * so that clas_osr_corrmeas can match bias corrections.
-         * Guard with code[j]==0 to avoid overwriting real receiver codes
-         * in PPP-RTK mode. */
+        /* VRS mode (y==NULL): set obs codes from CLAS smode so the per-signal
+         * slot ordering matches the VRS fill in clas_ssr2osr(), which emits
+         * obs[].code[j] = smode[j] and reads osr[].c[j] by the same index.
+         *
+         * This MUST be unconditional. VRS/OSR callers (e.g. cssr2rtcm3) reuse
+         * one input obs buffer across epochs and that buffer is copied into
+         * obs_copy at the top of this function, so obs_copy[].code[j] can carry
+         * a stale non-zero code from a previous epoch (or a different
+         * satellite). A `code[j]==0` guard then leaves that stale code in
+         * place, desyncing the slot order from smode:
+         * zdres computes osr[].c[] for one signal while the fill reads it as
+         * another, leaking a stale carrier value (observed as ~1153 m E5a
+         * glitches on E33 when the receiver-tracked signal set differs from the
+         * CLAS-corrected set). PPP-RTK mode (y!=NULL) skips this block entirely,
+         * so real receiver codes are preserved there. */
         if (y == NULL && sat > 0 && sat <= MAXSAT) {
             for (j = 0; j < nf; j++) {
-                if (obs_copy[i].code[j] == 0) {
-                    obs_copy[i].code[j] = corr->smode[sat - 1][j];
-                }
+                obs_copy[i].code[j] = corr->smode[sat - 1][j];
+            }
+            /* Clear the unused (>= nf) code slots too: the reused input buffer
+             * can leave stale non-zero codes there, and downstream readers
+             * (sat_wavelengths over all slots, the GAL L2-slot / L2C checks)
+             * would otherwise pick them up when nf < NFREQ. */
+            for (j = nf; j < NFREQ + NEXOBS; j++) {
+                obs_copy[i].code[j] = 0;
             }
         }
 
@@ -1639,6 +1655,26 @@ int clas_ssr2osr(rtk_t* rtk, obsd_t* obs, int n, nav_t* nav, clas_osrd_t* osr, i
             }
             if (osr[i].sat <= 0) {
                 continue;
+            }
+
+            /* Skip satellites with no usable observation on any signal. When
+             * CLAS provides no valid code/phase bias for a satellite (or it is
+             * stale), every signal comes out P = L = 0. The MSM encoder then
+             * writes such a satellite with rough range 255 (invalid): a dead
+             * entry that occupies the satellite mask but carries no usable
+             * range or carrier. The rover cannot position with it and may let
+             * it disturb satellite selection, so do not advertise it at all. */
+            {
+                int any_valid = 0;
+                for (j = 0; j < nf; j++) {
+                    if (osr[i].p[j] != 0.0 || osr[i].c[j] != 0.0) {
+                        any_valid = 1;
+                        break;
+                    }
+                }
+                if (!any_valid) {
+                    continue;
+                }
             }
             sys_v = satsys(sati, NULL);
 
