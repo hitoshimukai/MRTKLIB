@@ -480,24 +480,28 @@ static int decoderaw(rtksvr_t* svr, int index) {
              svr->format[index] == STRFMT_SEPT)) {
             int k, ch, cret, max_cret = 0;
 
-            if (svr->format[index] == STRFMT_UBX) {
-                /* UBX: demux L6D frames by PRN (both channels in same stream) */
-                int l6prn = svr->rtcm[index].buff[4]; /* PRN from L6 frame header */
-                if (svr->clas->l6delivery[0] < 0 || svr->clas->l6delivery[0] == l6prn) {
-                    ch = 0;
-                } else {
-                    ch = 1;
+            if (svr->format[index] == STRFMT_UBX || svr->format[index] == STRFMT_SEPT) {
+                /* UBX/SBF: a multi-channel L6 receiver (e.g. u-blox D9C, 2ch)
+                 * interleaves L6D frames from several QZS PRNs in one stream.
+                 * Route each frame to a CLAS channel keyed by transmit pattern,
+                 * keeping each channel locked to a single active PRN so subframe
+                 * assembly stays coherent across a satellite handover (#197).
+                 * ch<0 means the frame is from a non-active PRN — drop it so the
+                 * locked channel's subframe stream is not corrupted by mixing. */
+                int prn = svr->rtcm[index].buff[4];
+                int ptn = (svr->rtcm[index].buff[5] & 0x06) >> 1;
+                /* current rover observation time drives the demux re-lock
+                 * timeout. The rover decodes into raw[0] (receiver-raw formats)
+                 * or rtcm[0] (RTCM2/3); pick whichever is fresher so the clock
+                 * advances for RTCM3 rovers too — otherwise the timeout never
+                 * fires and a set satellite's stale lock is never released (#205). */
+                gtime_t now = svr->raw[0].time;
+                if (!now.time || (svr->rtcm[0].time.time && timediff(svr->rtcm[0].time, now) > 0)) {
+                    now = svr->rtcm[0].time;
                 }
-            } else if (svr->format[index] == STRFMT_SEPT) {
-                /* SBF: demux L6D frames by PRN from raw->ephsat */
-                int l6prn = 0, sat = svr->raw[index].ephsat;
-                if (sat > 0) {
-                    satsys(sat, &l6prn);
-                }
-                if (svr->clas->l6delivery[0] < 0 || svr->clas->l6delivery[0] == l6prn) {
-                    ch = 0;
-                } else {
-                    ch = 1;
+                ch = clas_route_l6frame(svr->clas, prn, ptn, svr->rtk.opt.l6mrg, now);
+                if (ch < 0) {
+                    continue;
                 }
             } else {
                 /* L6E: use stream index mapping (separate streams per channel) */
