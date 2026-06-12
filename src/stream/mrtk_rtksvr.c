@@ -84,9 +84,10 @@ static void writesol(rtksvr_t* svr, int index) {
 
     tracet(NULL, 4, "writesol: index=%d\n", index);
 
-    /* [WORKAROUND] Since some settings in solopt[0] are not set in solopt[1], set them manually. */
+    /* [WORKAROUND] Since some settings in solopt[0] have not been set in solopt[1], set them manually. */
     svr->solopt[1].outvel = svr->solopt[0].outvel;
     svr->solopt[1].timef = svr->solopt[0].timef;
+    svr->solopt[1].timeu = svr->solopt[0].timeu;
 
     for (i = 0; i < 2; i++) {
         if (svr->solopt[i].posf == SOLF_STAT) {
