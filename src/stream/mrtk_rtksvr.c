@@ -84,8 +84,9 @@ static void writesol(rtksvr_t* svr, int index) {
 
     tracet(NULL, 4, "writesol: index=%d\n", index);
 
-    /* workaround for velocity output in stream 2 */
+    /* [WORKAROUND] Since some settings in solopt[0] are not set in solopt[1], set them manually. */
     svr->solopt[1].outvel = svr->solopt[0].outvel;
+    svr->solopt[1].timef = svr->solopt[0].timef;
 
     for (i = 0; i < 2; i++) {
         if (svr->solopt[i].posf == SOLF_STAT) {
