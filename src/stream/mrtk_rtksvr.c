@@ -84,6 +84,9 @@ static void writesol(rtksvr_t* svr, int index) {
 
     tracet(NULL, 4, "writesol: index=%d\n", index);
 
+    /* workaround for velocity output in stream 2 */
+    svr->solopt[1].outvel = svr->solopt[0].outvel;
+
     for (i = 0; i < 2; i++) {
         if (svr->solopt[i].posf == SOLF_STAT) {
             /* output solution status */
