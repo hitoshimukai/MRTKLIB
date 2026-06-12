@@ -36,6 +36,7 @@
 #define SBF_SYNC_2 0x40     /* '@' */
 #define SBF_QZSRAWL6 4069   /* SBF block ID: QZSRawL6 (L6E) */
 #define SBF_QZSRAWL6D 4270  /* SBF block ID: QZSRawL6D (L6D) */
+#define SBF_QZSRAWL6E 4271  /* SBF block ID: QZSRawL6E (L6E, mosaic-G5) */
 #define SBF_GALRAWCNAV 4024 /* SBF block ID: GALRawCNAV (E6-B C/NAV / HAS) */
 #define UBX_SYNC_1 0xB5
 #define UBX_SYNC_2 0x62
@@ -43,7 +44,8 @@
 #define UBX_RXM_QZSSL6_ID 0x73
 
 #define MINPRNQZS 193
-#define MAX_QZS_PRN 10 /* J193..J202 */
+#define MAX_QZS_PRN 17    /* J193..J209 (L6D uses J193..J202, L6E J203..J209) */
+#define L6E_PRN_OFFSET 10 /* mosaic-G5 numbers L6E PRNs 10 above the L6D PRN */
 
 /* Galileo HAS constants */
 #define GAL_SVID_OFFSET 70        /* GAL PRN = SVID - 70 */
@@ -351,14 +353,19 @@ static int process_sbf(FILE* fp) {
             continue;
         }
 
-        /* check for L6 blocks */
-        if (id != SBF_QZSRAWL6 && id != SBF_QZSRAWL6D) continue;
+        /* check for L6 blocks (4069/4271 = L6E, 4270 = L6D) */
+        if (id != SBF_QZSRAWL6 && id != SBF_QZSRAWL6D && id != SBF_QZSRAWL6E) continue;
         if (len < 272) continue;
 
         type = (id == SBF_QZSRAWL6D) ? L6_D : L6_E;
         svid = U1(block + 14);
         parity = U1(block + 15);
         prn = svid - 180 + MINPRNQZS - 1;
+
+        /* mosaic-G5 QZSRawL6E (4271) carries the same SVID as the L6D block;
+         * its L6E stream is published under a PRN offset by +10 (J204/J205/J209
+         * for J194/J195/J199) to match the MADOCA .l6 PRN convention. */
+        if (id == SBF_QZSRAWL6E) prn += L6E_PRN_OFFSET;
 
         if (prn < MINPRNQZS || prn >= MINPRNQZS + MAX_QZS_PRN) continue;
 
