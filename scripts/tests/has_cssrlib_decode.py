@@ -7,6 +7,10 @@ files. Drives the cssrlib reference implementation (cssr_has / cnav_msg)
 directly so the page-collection + RS(255,32) decode and the per-block
 CSSR decode are all cssrlib's own code.
 
+cssrlib is an external run-time dependency of this script only (not bundled
+with, linked into, or copied into MRTKLIB): MIT License, Copyright (c) 2021
+Rui Hirokawa, https://github.com/hirokawa/cssrlib.
+
 Input format (G5P3162a.has): fixed 64-byte little-endian records
     tow_ms  u4   GPS TOW of reception (ms)
     wnc     u2   GPS week

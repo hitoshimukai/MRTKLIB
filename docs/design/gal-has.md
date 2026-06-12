@@ -237,7 +237,11 @@ The struct keeps its own `ssr_t ssr[MAXSAT]` (like `rtcm_t`) so callers copy to
 1. RS decoder unit test against ICD Annex C/D vectors.
 2. Decode `G5P3162a.has` (extracted from `G5P3162a.sbf`: 10 GAL satellites,
    ~1 h, HASS=1, MS=10–11) and cross-check decoded orbit/clock/bias values
-   against cssrlib's HAS decoder output on the same data.
+   against cssrlib's HAS decoder output on the same data
+   (`scripts/tests/has_cssrlib_decode.py`). cssrlib (MIT License,
+   © 2021 Rui Hirokawa, https://github.com/hirokawa/cssrlib) is used as an
+   independent reference implementation at development/validation time only;
+   it is not bundled with or linked into MRTKLIB.
 3. PPP run: `mrtk post` with RINEX converted from the same SBF, brdc nav,
    `correction = "gal-has"` — convergence and accuracy vs. surveyed position.
 4. Full ctest regression (no change to existing tests).
