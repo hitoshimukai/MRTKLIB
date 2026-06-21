@@ -1157,7 +1157,11 @@ static int decode_qzsrawl6(raw_t* raw, rtcm_t* rtcm) {
     }
     ret = decode_qzss_l6emsg(rtcm);
 
-    return ret;
+    /* Remap "L6E SSR decoded" (10) to a dedicated code (15) so consumers that
+     * read 10 as "L6D frame ready for CLAS redirect" (rtksvr redirect block,
+     * cssr2rtcm3) do not misroute MADOCA L6E. rtksvr applies code 15 via
+     * update_ssr when not in CLAS/PPP-RTK mode; cssr2rtcm3 ignores it. */
+    return ret == 10 ? 15 : ret;
 }
 /* decode SBF NavIC/IRNSS subframe -------------------------------------------*/
 static int decode_navicraw(raw_t* raw) {
