@@ -1369,8 +1369,12 @@ static int decode_rxmqzssl6(raw_t* raw, rtcm_t* rtcm) {
             /* L6D (CLAS): skip MADOCA decoder, route to CLAS via redirect block */
             ret = 10;
         } else {
-            /* L6E (MADOCA-PPP): decode SSR corrections */
+            /* L6E (MADOCA-PPP): decode SSR corrections. Remap the "SSR decoded"
+             * code (10) to the dedicated MADOCA L6E code (15) so it is not
+             * mistaken for an L6D frame-ready by the rtksvr CLAS redirect or
+             * cssr2rtcm3 (see decode_qzsrawl6 in mrtk_rcv_septentrio.c). */
             ret = decode_qzss_l6emsg(rtcm);
+            if (ret == 10) ret = 15;
         }
     }
     return ret;

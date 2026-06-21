@@ -120,8 +120,9 @@
 #define SBF_GEORAWL1 4020   /* SBF SBAS L1 navigation frame */
 #define SBF_BDSRAW 4047     /* SBF BDS navigation page */
 #define SBF_QZSRAWL1CA 4066 /* SBF QZSS C/A subframe */
-#define SBF_QZSRAWL6 4069   /* SBF QZSS L6 message */
-#define SBF_QZSRAWL6D 4270  /* SBF QZSS L6D message (mosaic-G5) */
+#define SBF_QZSRAWL6 4069   /* SBF QZSS L6 message (generic; Source: 1=L6D, 2=L6E) */
+#define SBF_QZSRAWL6D 4270  /* SBF QZSS L6D message (mosaic-G5; Source always 1) */
+#define SBF_QZSRAWL6E 4271  /* SBF QZSS L6E message (mosaic-G5; Source always 2) */
 #define SBF_NAVICRAW 4093   /* SBF NavIC/IRNSS subframe */
 
 /* Decoded navigation blocks */
@@ -1088,7 +1089,12 @@ static int decode_bdsraw(raw_t* raw) {
 }
 /* decode SBF QZS C/A subframe -----------------------------------------------*/
 static int decode_qzsrawl1ca(raw_t* raw) { return decode_rawca(raw, SYS_QZS); }
-/* decode SBF QZS L6 message -------------------------------------------------*/
+/* decode SBF QZS L6 message (QZSRawL6 / QZSRawL6D / QZSRawL6E) ---------------
+ * Parses the shared QZSRawL6x header + 250-byte L6 frame, then dispatches on
+ * the SBF Source field: L6E (MADOCA-PPP) is decoded inline, L6D (CLAS) returns
+ * 10 for the caller's CLAS redirect. Handles both the legacy generic block
+ * (4069, mosaic-CLAS) and the signal-split blocks (4270/4271, mosaic-G5).
+ *---------------------------------------------------------------------------*/
 static int decode_qzsrawl6(raw_t* raw, rtcm_t* rtcm) {
     gtime_t time;
     double tow;
@@ -1138,68 +1144,24 @@ static int decode_qzsrawl6(raw_t* raw, rtcm_t* rtcm) {
     }
 
     memcpy(rtcm->buff, buff, 250);
+
+    /* Route by the SBF Source field (SBF ref: 1=QZSS L6D, 2=QZSS L6E).
+     * mosaic-CLAS carries both signals under QZSRawL6 (4069); mosaic-G5
+     * pre-splits into QZSRawL6D (4270, Source=1) / QZSRawL6E (4271, Source=2).
+     * L6D (CLAS) -> return 10 so the caller redirects the frame to the CLAS
+     * decoder. L6E and Source=0/Unknown fall through to the MADOCA-PPP decoder,
+     * which self-rejects non-L6E content by vendor ID. */
+    if (source == 1) {
+        raw->ephsat = sat; /* CLAS satellite for redirect / cssr2rtcm3 filtering */
+        return 10;         /* L6D frame ready (skip MADOCA decoder) */
+    }
     ret = decode_qzss_l6emsg(rtcm);
 
-    return ret;
-}
-/* decode SBF QZSRawL6D block (CLAS L6D) ------------------------------------
- * Extracts the 250-byte L6D data part from the SBF QZSRawL6D (4270) block
- * and copies it into rtcm->buff WITHOUT passing through the MADOCA L6E
- * decoder.  Returns 10 to signal "L6D frame ready" to the caller.
- *---------------------------------------------------------------------------*/
-static int decode_qzsrawl6d(raw_t* raw, rtcm_t* rtcm) {
-    double tow;
-    int prn, sat, week, i, j;
-    unsigned char svid, parity, rscnt, source, rxchannel;
-    uint8_t* p = (raw->buff) + 8; /* jump to TOW location */
-    unsigned char buff[256];
-
-    if (raw->len < 272) {
-        trace(NULL, 2, "SBF decode_qzsrawl6d frame length error: len=%d\n", raw->len);
-        return -1;
-    }
-
-    /* time */
-    tow = U4(p);
-    week = U2(p + 4);
-    raw->time = gpst2time(week, tow * 0.001);
-
-    svid = U1(p + 6);
-    parity = U1(p + 7);
-    rscnt = U1(p + 8);
-    source = U1(p + 9);
-    rxchannel = U1(p + 11);
-
-    prn = svid - 180 + MINPRNQZS - 1;
-    sat = satno(SYS_QZS, prn);
-
-    if (sat == 0) {
-        trace(NULL, 2, "SBF decode_qzsrawl6d SVID error: SVID=%d prn=%d\n", svid, prn);
-        return -1;
-    }
-    trace(NULL, 3, "SBF QZSRawL6D: %s prn=%d SVID=%d Parity=%d Source=%d\n", time_str(raw->time, 0), prn, svid, parity,
-          source);
-
-    if (parity == 0) {
-        trace(NULL, 2, "SBF decode_qzsrawl6d RS decode error\n");
-        return -1;
-    }
-
-    /* extract 252 bytes (63 x 4B words) → use first 250 bytes */
-    for (i = 0, j = 0; i < 63; i++, j += 4) {
-        buff[j] = (U4(p + 12 + i * 4) >> 24) & 0xFF;
-        buff[j + 1] = (U4(p + 12 + i * 4) >> 16) & 0xFF;
-        buff[j + 2] = (U4(p + 12 + i * 4) >> 8) & 0xFF;
-        buff[j + 3] = U4(p + 12 + i * 4) & 0xFF;
-    }
-
-    memcpy(rtcm->buff, buff, 250);
-
-    /* store satellite number for caller (e.g., cssr2rtcm3 PRN filtering) */
-    raw->ephsat = sat;
-
-    /* return 10 = L6D frame ready (skip MADOCA decoder) */
-    return 10;
+    /* Remap "L6E SSR decoded" (10) to a dedicated code (15) so consumers that
+     * read 10 as "L6D frame ready for CLAS redirect" (rtksvr redirect block,
+     * cssr2rtcm3) do not misroute MADOCA L6E. rtksvr applies code 15 via
+     * update_ssr when not in CLAS/PPP-RTK mode; cssr2rtcm3 ignores it. */
+    return ret == 10 ? 15 : ret;
 }
 /* decode SBF NavIC/IRNSS subframe -------------------------------------------*/
 static int decode_navicraw(raw_t* raw) {
@@ -1657,10 +1619,10 @@ static int decode_sbf(raw_t* raw, rtcm_t* rtcm) {
             return decode_bdsraw(raw);
         case SBF_QZSRAWL1CA:
             return decode_qzsrawl1ca(raw);
-        case SBF_QZSRAWL6:
+        case SBF_QZSRAWL6:  /* generic (mosaic-CLAS): Source field selects L6D/L6E */
+        case SBF_QZSRAWL6D: /* mosaic-G5 CLAS L6D  (Source always 1) */
+        case SBF_QZSRAWL6E: /* mosaic-G5 MADOCA L6E (Source always 2) */
             return decode_qzsrawl6(raw, rtcm);
-        case SBF_QZSRAWL6D:
-            return decode_qzsrawl6d(raw, rtcm);
         case SBF_NAVICRAW:
             return decode_navicraw(raw);
         /* decoded navigation blocks */

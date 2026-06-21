@@ -344,6 +344,12 @@ static void update_svr(rtksvr_t* svr, int ret, obs_t* obs, nav_t* nav, int ephsa
         svr->nmsg[index][5]++;
     } else if (ret == 10) { /* ssr message */
         update_ssr(svr, index);
+    } else if (ret == 15) { /* MADOCA L6E SSR (raw SBF/UBX) */
+        /* Apply only outside CLAS/PPP-RTK mode: there the CLAS decoder owns
+         * nav->ssr_ch[0], so a mixed mosaic-G5 stream (L6D + L6E) must not let
+         * MADOCA L6E overwrite the CLAS biases. In PPP/MADOCA mode svr->clas is
+         * NULL and the L6E SSR is applied like any other ssr_ch[0] source. */
+        if (!svr->clas) update_ssr(svr, index);
     } else if (ret == 11) { /* stat message */
         update_stat(svr, index);
     } else if (ret == 12) { /* local message */
