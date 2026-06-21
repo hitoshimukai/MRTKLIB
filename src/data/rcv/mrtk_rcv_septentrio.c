@@ -120,8 +120,9 @@
 #define SBF_GEORAWL1 4020   /* SBF SBAS L1 navigation frame */
 #define SBF_BDSRAW 4047     /* SBF BDS navigation page */
 #define SBF_QZSRAWL1CA 4066 /* SBF QZSS C/A subframe */
-#define SBF_QZSRAWL6 4069   /* SBF QZSS L6 message */
-#define SBF_QZSRAWL6D 4270  /* SBF QZSS L6D message (mosaic-G5) */
+#define SBF_QZSRAWL6 4069   /* SBF QZSS L6 message (generic; Source: 1=L6D, 2=L6E) */
+#define SBF_QZSRAWL6D 4270  /* SBF QZSS L6D message (mosaic-G5; Source always 1) */
+#define SBF_QZSRAWL6E 4271  /* SBF QZSS L6E message (mosaic-G5; Source always 2) */
 #define SBF_NAVICRAW 4093   /* SBF NavIC/IRNSS subframe */
 
 /* Decoded navigation blocks */
@@ -1657,7 +1658,10 @@ static int decode_sbf(raw_t* raw, rtcm_t* rtcm) {
             return decode_bdsraw(raw);
         case SBF_QZSRAWL1CA:
             return decode_qzsrawl1ca(raw);
-        case SBF_QZSRAWL6:
+        case SBF_QZSRAWL6:  /* generic L6 (mosaic-CLAS): MADOCA L6E when Source=2;
+                             * non-L6E (e.g. CLAS L6D) is self-rejected by vendor ID */
+        case SBF_QZSRAWL6E: /* mosaic-G5 L6E-only block (Source always 2); identical
+                             * NavBits layout to QZSRawL6 -> MADOCA L6E decoder */
             return decode_qzsrawl6(raw, rtcm);
         case SBF_QZSRAWL6D:
             return decode_qzsrawl6d(raw, rtcm);
