@@ -221,8 +221,7 @@ format = "l6e"                                                         # (0:rtcm
 [streams.output.stream1]
 type = "tcpsvr"   # (0:off,1:serial,2:file,3:tcpsvr,4:tcpcli,5:ntripsvr,9:ntripcas,10:udpsvr,11:udpcli)
 path = ":12105"
-# format = "llh" # (0:llh,1:xyz,2:enu,3:nmea,4:stat)
-format = "nmea" # (0:llh,a1:xyz,2:enu,3:nmea,4:stat)
+format = "llh" # (0:llh,1:xyz,2:enu,3:nmea,4:stat)
 
 [streams.output.stream2]
 type = "file"                                   # (0:off,1:serial,2:file,3:tcpsvr,4:tcpcli,5:ntripsvr,9:ntripcas,10:udpsvr,11:udpcli)
